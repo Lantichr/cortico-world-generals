@@ -1,0 +1,59 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          check-latest: true
+          cache: pnpm
+      - name: Check release version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: node --input-type=module -e "import fs from 'node:fs'; const p = JSON.parse(fs.readFileSync('package.json', 'utf8')); if (process.env.RELEASE_TAG !== 'v' + p.version) throw new Error('Release tag must equal v' + p.version);"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm check:package
+      - run: pnpm check:host-patch
+      - name: Publish unpublished version
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { spawnSync } from 'node:child_process';
+          const { name, version } = JSON.parse(readFileSync('package.json', 'utf8'));
+          const lookup = spawnSync('npm', ['view', `${name}@${version}`, 'version', '--json'], { encoding: 'utf8' });
+          if (lookup.error) throw lookup.error;
+          if (lookup.status === 0 && lookup.stdout.trim()) {
+            if (JSON.parse(lookup.stdout) !== version) throw new Error('Unexpected registry version');
+            console.log(`${name}@${version} is already published; npm publication skipped`);
+            process.exit(0);
+          }
+          if (lookup.status !== 0) {
+            let code;
+            try { code = JSON.parse(lookup.stdout).error?.code; } catch {}
+            if (code !== 'E404') throw new Error(lookup.stderr || lookup.stdout || 'Registry lookup failed');
+          }
+          const publish = spawnSync('npm', ['publish', '--provenance'], { stdio: 'inherit' });
+          if (publish.error) throw publish.error;
+          process.exit(publish.status ?? 1);
+          NODE

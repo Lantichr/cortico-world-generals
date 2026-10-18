@@ -1,0 +1,146 @@
+diff --git a/src/core/bus.ts b/src/core/bus.ts
+index 9fa6704..4f9ec27 100644
+--- a/src/core/bus.ts
++++ b/src/core/bus.ts
+@@ -34,6 +34,7 @@ export class WakeBus {
+   private opts: WakeBusOptions;
+   private queue: Queued[] = [];
+   private paused = false;
++  private readonly pausedListeners = new Set<(paused: boolean) => void>();
+   private gate: DeliveryGate | null = null;
+   /** 一次整批投递许可;人工暂停的优先级更高。 */
+   private bypassGateOnce = false;
+@@ -162,13 +163,29 @@ export class WakeBus {
+ 
+   /** 人工暂停/继续(WebUI);继续时积压一次性投递 */
+   setPaused(v: boolean): void {
+-    if (v !== this.paused) this.log.emit('info', v ? '总线已暂停:事件照常落库,不投递' : '总线继续', { event: v ? 'paused' : 'resumed', data: { queued: this.queue.length } });
++    const changed = v !== this.paused;
+     this.paused = v;
++    if (changed) {
++      this.log.emit('info', v ? '总线已暂停:事件照常落库,不投递' : '总线继续', { event: v ? 'paused' : 'resumed', data: { queued: this.queue.length } });
++      for (const listener of this.pausedListeners) {
++        try {
++          listener(v);
++        } catch (error) {
++          this.log.warn('暂停状态订阅失败', { err: error });
++        }
++      }
++    }
+     if (!this.paused && (this.ready || this.queue.length > 0)) {
+       this.deliver(this.bypassGateOnce);
+     }
+   }
+ 
++  /** 订阅后续暂停状态变化；同步通知在恢复投递之前完成。 */
++  onPausedChanged(listener: (paused: boolean) => void): () => void {
++    this.pausedListeners.add(listener);
++    return () => this.pausedListeners.delete(listener);
++  }
++
+   isPaused(): boolean {
+     return this.paused;
+   }
+diff --git a/src/core/core.ts b/src/core/core.ts
+index 95cf4aa..b324f09 100644
+--- a/src/core/core.ts
++++ b/src/core/core.ts
+@@ -108,6 +108,8 @@ export class Core<C extends CoreConfig = CoreConfig> {
+   private readonly hiddenPushes = new Map<string, { count: number; notedAtMs: number }>();
+   readonly providers: ProviderRegistry;
+   private readonly moduleHostLeases = new Map<World, { active: boolean }>();
++  private readonly modulePausedValues = new WeakMap<World, boolean>();
++  private unsubscribePaused: (() => void) | null = null;
+ 
+   constructor(loaded: LoadedConfig<C>, deps: CoreDeps) {
+     this.loaded = loaded;
+@@ -198,6 +200,26 @@ export class Core<C extends CoreConfig = CoreConfig> {
+       if (trigger === 'interrupt') this.loop.interruptCurrentRound();
+       else this.loop.abortCurrentRound();
+     });
++    this.subscribePaused();
++  }
++
++  private subscribePaused(): void {
++    if (this.unsubscribePaused) return;
++    this.unsubscribePaused = this.bus.onPausedChanged((paused) => {
++      for (const [mod, lease] of this.moduleHostLeases) {
++        if (lease.active) this.notifyOperatorPaused(mod, paused);
++      }
++    });
++  }
++
++  private notifyOperatorPaused(mod: World, paused: boolean): void {
++    if (this.modulePausedValues.get(mod) === paused) return;
++    this.modulePausedValues.set(mod, paused);
++    try {
++      mod.onOperatorPausedChanged?.(paused);
++    } catch (error) {
++      this.log.warn(`World 暂停状态通知失败: ${mod.id}`, { err: error });
++    }
+   }
+ 
+   private makeApi(): CoreApi {
+@@ -474,6 +496,7 @@ export class Core<C extends CoreConfig = CoreConfig> {
+     if (previous) previous.active = false;
+     const lease = { active: true };
+     this.moduleHostLeases.set(mod, lease);
++    this.modulePausedValues.delete(mod);
+     // getter 的 this 是 WorldHost；通过 self 访问 Core。
+     const self = this;
+     return {
+@@ -593,6 +616,7 @@ export class Core<C extends CoreConfig = CoreConfig> {
+   }
+ 
+   async start(): Promise<void> {
++    this.subscribePaused();
+     // 构造期已加载状态；此处再次 load 会覆盖装配后、启动前的修改。
+     const repair = this.session.load();
+     if (repair) {
+@@ -603,7 +627,9 @@ export class Core<C extends CoreConfig = CoreConfig> {
+     }
+     for (const mod of this.worlds) {
+       try {
+-        await mod.start(this.makeHost(mod));
++        const host = this.makeHost(mod);
++        this.notifyOperatorPaused(mod, this.bus.isPaused());
++        await mod.start(host);
+       } catch (error) {
+         const lease = this.moduleHostLeases.get(mod);
+         if (lease) lease.active = false;
+@@ -634,7 +660,9 @@ export class Core<C extends CoreConfig = CoreConfig> {
+     if (this.worlds.some((m) => m.id === mod.id)) throw new Error(`World 已挂载: ${mod.id}`);
+     if (this.started) {
+       try {
+-        await mod.start(this.makeHost(mod));
++        const host = this.makeHost(mod);
++        this.notifyOperatorPaused(mod, this.bus.isPaused());
++        await mod.start(host);
+       } catch (error) {
+         const lease = this.moduleHostLeases.get(mod);
+         if (lease) lease.active = false;
+@@ -672,6 +700,8 @@ export class Core<C extends CoreConfig = CoreConfig> {
+   /** 先终止主循环，再并发停止 World；各步骤有独立期限，失败写入返回结果。 */
+   async stop(): Promise<WorldStopFailure[]> {
+     this.started = false;
++    this.unsubscribePaused?.();
++    this.unsubscribePaused = null;
+     this.loop.stop();
+     this.timers.stop();
+     const failures: WorldStopFailure[] = [];
+diff --git a/src/core/types.ts b/src/core/types.ts
+index 32fe1a3..5c98c80 100644
+--- a/src/core/types.ts
++++ b/src/core/types.ts
+@@ -923,6 +923,11 @@ export interface World {
+   /** 挂载时接收宿主并开始连接平台、推送事件。 */
+   start(host: WorldHost): Promise<void>;
+   stop(): Promise<void>;
++  /**
++   * 操作者暂停状态变化时同步调用，首次在 start() 前提供当前值；隐藏 World 同样接收。
++   * World 应停止自主发起动作；钩子不得阻塞或等待模型调用。
++   */
++  onOperatorPausedChanged?(paused: boolean): void;
+   /**
+    * 新前缀和保留上下文已装入 session，总线尚未恢复投递时调用。
+    * 此时推送的事件进入新 session 的第一批；隐藏 World 不接收通知。

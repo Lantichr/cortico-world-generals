@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Generals · 对局画面</title>
+  <link rel="stylesheet" href="/viewer/styles.css">
+  <script src="/viewer/app.js" defer></script>
+</head>
+<body>
+  <svg class="terrain-symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <symbol id="terrain-mountain" viewBox="0 0 32 32"><path d="M2 26 12 6l5 10 4-7 9 17Z"/><path class="terrain-detail" d="m8 14 4-8 4 8-4-2Z"/></symbol>
+      <symbol id="terrain-city" viewBox="0 0 32 32"><path d="M5 27V13H3V5h5v4h5V5h6v4h5V5h5v8h-2v14H5Z"/><path class="terrain-detail" d="M13 27v-9a3 3 0 0 1 6 0v9Z"/></symbol>
+      <symbol id="terrain-crown" viewBox="0 0 32 32"><path d="m3 8 8 6 5-9 5 9 8-6-4 17H7Z"/><path d="M7 27h18v3H7Z"/></symbol>
+      <symbol id="terrain-obstacle" viewBox="0 0 32 32"><path d="M5 12 12 5l8 2 7 8-2 12H7L3 20Z"/><path class="terrain-detail" d="m5 12 9 5 6-10-3 15 8 5H7l7-10Z"/></symbol>
+      <symbol id="terrain-tunnel" viewBox="0 0 32 32"><path d="M3 27V17a13 13 0 0 1 26 0v10h-6V17a7 7 0 0 0-14 0v10Z"/></symbol>
+    </defs>
+  </svg>
+  <main id="viewer">
+    <header class="toolbar">
+      <div class="game-heading"><strong>Generals</strong><span id="turn">Turn —</span><span id="game-status" role="status">等待画面</span><span id="connection-status" class="connection-status" role="status">连接中</span></div>
+      <div class="display-controls">
+        <label><input id="show-plan" type="checkbox" checked> 显示规划</label>
+        <label><input id="board-only" type="checkbox"> 只看棋盘</label>
+        <button id="zoom-out" type="button" aria-label="缩小">−</button><button id="fit-board" type="button">适应</button><button id="zoom-in" type="button" aria-label="放大">+</button>
+      </div>
+    </header>
+    <div id="connection-warning" class="connection-warning" role="alert" hidden>画面连接断开，正在重连</div>
+    <section class="play-area">
+      <div id="board-viewport" class="board-viewport"><div id="board" class="board" role="grid" aria-label="当前对局地图" hidden></div><p id="empty-board">等待进入对局</p></div>
+      <aside id="scores" class="scores" aria-label="玩家排名"><table><thead><tr><th>玩家</th><th>兵力</th><th>土地</th></tr></thead><tbody id="score-rows"></tbody></table></aside>
+    </section>
+    <footer>
+      <span class="arrow-key queued-key">→ 已发送待处理</span><span class="arrow-key plan-key">→ S1 规划</span><span id="plan-status"></span>
+      <span>白框为最近提交目的格的本地光标；规划每回合核对。</span>
+    </footer>
+  </main>
+</body>
+</html>

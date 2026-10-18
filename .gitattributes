@@ -1,0 +1,2 @@
+* text=auto eol=lf
+compat/*.patch whitespace=-blank-at-eol

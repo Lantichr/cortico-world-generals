@@ -1,0 +1,63 @@
+{
+  "name": "cortico-world-generals",
+  "version": "0.1.0-rc.1",
+  "type": "module",
+  "description": "Generals.io Bot Server World for Cortico with map tools, tactical play and a local viewer",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lantichr/cortico-world-generals.git"
+  },
+  "homepage": "https://github.com/Lantichr/cortico-world-generals#readme",
+  "bugs": {
+    "url": "https://github.com/Lantichr/cortico-world-generals/issues"
+  },
+  "keywords": [
+    "cortico-world",
+    "cortico",
+    "generals",
+    "generals.io",
+    "strategy"
+  ],
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "packageManager": "pnpm@11.5.0",
+  "main": "./src/index.ts",
+  "cortico": {
+    "kind": "world",
+    "api": 6,
+    "displayName": "Generals"
+  },
+  "files": [
+    "src",
+    "docs",
+    "examples",
+    "compat",
+    "README.md",
+    "README_zh.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "tag": "next"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check:package": "node --import tsx scripts/check-package.ts",
+    "check:host-patch": "node --import tsx scripts/check-host-patch.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "cortico": "0.2.3",
+    "jsdom": "^30.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
