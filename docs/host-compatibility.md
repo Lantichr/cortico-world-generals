@@ -2,21 +2,23 @@ Owner: [`src/proxy.ts`](../src/proxy.ts), [`compat/host-operator-pause.patch`](.
 
 # Host compatibility
 
-Version `0.1.0-rc.1` targets **Cortico 0.2.3 / World API 6**. The published host supplies the APIs used by manual tools, observations and the local viewer. It does not supply the operator-pause lifecycle hook needed by autonomous S1.
+Version `0.1.0-rc.2` targets **Cortico 0.2.3 / World API 6**. Manual tools, observations, the local viewer and autonomous S1 work with the unmodified host. Operator-pause integration is an optional enhancement.
 
-| Host | Manual tools and viewer | Autonomous S1 |
-| --- | --- | --- |
-| Unmodified Cortico 0.2.3, API 6 | Available | `generals_start_agent` rejects delegation |
-| Cortico 0.2.3 with the supplied pause patch | Available | Available for supported rules |
-| API 5 host | Upgrade to API 6 before installing this package | Requires API 6 and the pause lifecycle |
+| Host | Manual tools and viewer | Autonomous S1 | Operator pause stops S1 |
+| --- | --- | --- | --- |
+| Unmodified Cortico 0.2.3, API 6 | Available | Available for supported rules | No |
+| Cortico 0.2.3 with the supplied pause patch | Available | Available for supported rules | Yes |
+| API 5 host | Upgrade to API 6 before installation | Requires API 6 | Depends on optional pause integration |
 
 The pause patch has **not been merged upstream**. Installing this npm package does not apply it. It is a patch for the Cortico host source, separate from the extension.
 
-## Why S1 requires the hook
+## Optional operator-pause integration
 
-S1 runs in an engine child process and keeps acting while the model is idle or unavailable. Stopping event delivery to the model alone does not pause that process. The host must call `onOperatorPausedChanged(paused)` before `World.start()` and on later operator pause changes, including for hidden Worlds.
+S1 keeps acting while the model is idle or unavailable. Cortico 0.2.3's global pause stops event delivery; it does not stop S1, active tools or other background behavior. S1 does not require a pause hook to start. Use `generals_stop_agent` to revoke delegation and request clearing remaining server moves, or deactivate the World to stop its local engine. The remote game continues, and actions already processed cannot be recalled.
 
-The proxy records the initial hook call. Without that handshake it rejects `generals_start_agent` before forwarding the delegation, and the World page shows the missing hook. Manual tools and the viewer remain usable. Apply the patch to a compatible source host, restart the entire host, then delegate again; restarting only the World cannot load changed Core code.
+A host can additionally call `onOperatorPausedChanged(paused)` before `World.start()` and on later operator pause changes, including for hidden Worlds. The extension automatically uses these notifications without a configuration switch. A pause then stops new movement and autonomous start votes, invalidates the current decision and strategic intent, and requests clearing pending moves. Resume retains delegation with a new control epoch. These notifications do not pause the remote game.
+
+The World page shows whether pause integration is connected. [`generals_agent_status`](contracts.md#control-and-strategic-intents) reports the same capability for model use. To add integration to a compatible source host, apply the optional patch below and restart the entire host; restarting only the World cannot load changed Core code.
 
 ## Apply to a source host
 

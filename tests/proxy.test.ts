@@ -60,7 +60,7 @@ async function fixture(options: { handshake?: boolean; initialPaused?: boolean; 
     rmSync(dir, { recursive: true, force: true });
   });
   const call = (verb: string, args: Record<string, unknown> = {}) => proxy.tools().find((tool) => tool.name === `generals_${verb}`)!.handler(args, context);
-  const send = (name: string, value: unknown): void => { peers[0].send('42' + JSON.stringify([name, value])); };
+  const send = (name: string, value: unknown): void => { peers[peers.length - 1].send('42' + JSON.stringify([name, value])); };
   const events = () => store.range({ source: 'generals' });
   const child = (): ChildProcess => (proxy as unknown as { child: ChildProcess }).child;
   const update = (turn: number, armies = [10, 0, 5], terrain = [0, -1, 1], extra: Record<string, unknown> = {}): void => {
@@ -79,18 +79,32 @@ async function fixture(options: { handshake?: boolean; initialPaused?: boolean; 
 afterEach(async () => { for (const stop of cleanup.splice(0).reverse()) await stop(); });
 
 describe('GeneralsWorldProxy with a real engine and local protocol server', () => {
-  it('requires the host pause hook before autonomous admission and sends no room or movement request on rejection', async () => {
+  it('joins, votes and moves without the optional pause hook, then stops autonomous moves through stop_agent', async () => {
     const f = await fixture({ pauseHook: false });
-    expect(await f.call('start_agent', { room: 'fixture-room' })).toMatchObject({ failed: true, text: expect.stringContaining('onOperatorPausedChanged') });
+    const requests = () => f.packets.filter((packet) => packet.startsWith('42')).map((packet) => JSON.parse(packet.slice(2)));
+    expect(f.proxy.webUi().lamps).toContainEqual(expect.objectContaining({ label: '暂停联动', state: 'offline' }));
+    expect(JSON.parse(await f.call('agent_status') as string)).toMatchObject({ operatorPauseLinked: false, operatorPaused: false });
+    expect(JSON.parse(await f.call('observe') as string).agent).toMatchObject({ operatorPauseLinked: false });
+    expect(JSON.parse(await f.call('strategy_brief') as string)).toMatchObject({ operatorPauseLinked: false });
+    expect(await f.call('start_agent', { room: 'fixture-room', forceStart: true })).toBeTypeOf('string');
+    await waitFor(() => requests().some((packet) => packet[0] === 'join_private'));
+    expect(requests()).toContainEqual(['join_private', 'fixture-room', 'fixture-private-account']);
+    f.send('queue_update', { players: 2 });
+    await waitFor(() => requests().some((packet) => packet[0] === 'set_force_start'));
+    expect(requests()).toContainEqual(['set_force_start', 'fixture-room', true]);
+    f.send('game_start', { playerIndex: 0, replay_id: 'fixture-replay', teams: [1, 2], options: { modifiers: [] } });
+    await waitFor(() => f.events().some((event) => event.type === 'generals.start'));
+    f.update(1, [20, 0, 0]);
+    await waitFor(() => requests().some((packet) => packet[0] === 'attack'));
+    expect(JSON.parse(await f.call('agent_status') as string)).toMatchObject({ control: 'autonomous', operatorPauseLinked: false, operatorPaused: false });
+    expect(await f.call('stop_agent')).toBeTypeOf('string');
     expect(JSON.parse(await f.call('agent_status') as string)).toMatchObject({ control: 'manual' });
-    const requests = f.packets.filter((packet) => packet.startsWith('42')).map((packet) => JSON.parse(packet.slice(2))[0]);
-    expect(requests).not.toContain('join_private');
-    expect(requests).not.toContain('attack');
-
-    f.proxy.onOperatorPausedChanged(false);
-    expect(await f.call('start_agent', { room: 'fixture-room' })).toBeTypeOf('string');
-    await waitFor(() => f.packets.some((packet) => packet.startsWith('42') && JSON.parse(packet.slice(2))[0] === 'join_private'));
-    expect(JSON.parse(await f.call('agent_status') as string)).toMatchObject({ control: 'autonomous' });
+    const attacks = requests().filter((packet) => packet[0] === 'attack').length;
+    f.update(2, [21, 0, 0], [0, -1, 1], { attackIndex: 1 });
+    await waitFor(async () => JSON.parse(await f.call('observe') as string).view?.turn === 2);
+    f.update(3, [22, 0, 0], [0, -1, 1], { attackIndex: 1 });
+    await waitFor(async () => JSON.parse(await f.call('observe') as string).view?.turn === 3);
+    expect(requests().filter((packet) => packet[0] === 'attack')).toHaveLength(attacks);
   });
 
   it('preserves declarations and forwards room tools, failures and console state', async () => {
@@ -114,17 +128,47 @@ describe('GeneralsWorldProxy with a real engine and local protocol server', () =
     expect(f.events().map((event) => event.text).join()).not.toContain('fixture-private-account');
   });
 
-  it('requires a fresh host pause state before delegating after a proxy restart', async () => {
-    const f = await fixture();
+  it('restarts without the optional hook using an unpaused state after the previous host paused it', async () => {
+    const f = await fixture({ initialPaused: true });
+    expect(await f.call('start_agent', { room: 'fixture-room' })).toMatchObject({ failed: true, text: expect.stringContaining('Operator paused') });
     await f.proxy.stop();
     await f.proxy.start(f.host);
-    expect(await f.call('start_agent', { room: 'fixture-room' })).toMatchObject({ failed: true, text: expect.stringContaining('onOperatorPausedChanged') });
-    const requests = f.packets.filter((packet) => packet.startsWith('42')).map((packet) => JSON.parse(packet.slice(2))[0]);
-    expect(requests).not.toContain('join_private');
-    expect(requests).not.toContain('attack');
-    f.proxy.onOperatorPausedChanged(false);
+    expect(f.proxy.webUi().lamps).toContainEqual(expect.objectContaining({ label: '暂停联动', state: 'offline' }));
+    expect(JSON.parse(await f.call('agent_status') as string)).toMatchObject({ control: 'manual', operatorPauseLinked: false, operatorPaused: false });
     expect(await f.call('start_agent', { room: 'fixture-room' })).toBeTypeOf('string');
     await waitFor(() => f.packets.some((packet) => packet.startsWith('42') && JSON.parse(packet.slice(2))[0] === 'join_private'));
+    f.send('game_start', { playerIndex: 0, replay_id: 'fixture-replay', teams: [1, 2], options: { modifiers: [] } });
+    await waitFor(() => f.events().some((event) => event.type === 'generals.start'));
+    f.update(1, [20, 0, 0]);
+    await waitFor(() => f.packets.some((packet) => packet.startsWith('42') && JSON.parse(packet.slice(2))[0] === 'attack'));
+    expect(JSON.parse(await f.call('agent_status') as string)).toMatchObject({ control: 'autonomous', operatorPaused: false });
+  });
+
+  it('links a late host pause callback to an already running agent and resumes its moves', async () => {
+    const f = await fixture({ pauseHook: false });
+    await f.game();
+    expect(await f.call('start_agent')).toBeTypeOf('string');
+    f.update(1, [20, 0, 0]);
+    await waitFor(() => f.packets.some((packet) => packet.includes('attack')));
+    expect(JSON.parse(await f.call('agent_status') as string)).toMatchObject({ operatorPauseLinked: false, control: 'autonomous' });
+
+    f.proxy.onOperatorPausedChanged(false);
+    expect(JSON.parse(await f.call('agent_status') as string)).toMatchObject({ operatorPauseLinked: true, operatorPaused: false, control: 'autonomous' });
+    expect(JSON.parse(await f.call('strategy_brief') as string)).toMatchObject({ operatorPauseLinked: true, operatorPaused: false });
+    f.proxy.onOperatorPausedChanged(true);
+    expect(JSON.parse(await f.call('agent_status') as string)).toMatchObject({ operatorPauseLinked: true, operatorPaused: true, control: 'autonomous' });
+    expect(f.proxy.webUi().lamps).toContainEqual(expect.objectContaining({ label: '暂停联动', state: 'online' }));
+    const attacks = f.packets.filter((packet) => packet.includes('attack')).length;
+    f.update(2, [1, 20, 0], [0, 0, 1], { attackIndex: 1 });
+    await waitFor(async () => JSON.parse(await f.call('observe') as string).view?.turn === 2);
+    expect(f.packets.filter((packet) => packet.includes('attack'))).toHaveLength(attacks);
+    expect(JSON.parse(await f.call('observe') as string).agent).toMatchObject({ operatorPauseLinked: true, operatorPaused: true });
+    expect(JSON.parse(await f.call('strategy_brief') as string)).toMatchObject({ operatorPauseLinked: true, operatorPaused: true });
+
+    f.proxy.onOperatorPausedChanged(false);
+    f.update(3, [2, 21, 0], [0, 0, 1], { attackIndex: 1 });
+    await waitFor(() => f.packets.filter((packet) => packet.includes('attack')).length > attacks);
+    expect(JSON.parse(await f.call('agent_status') as string)).toMatchObject({ operatorPauseLinked: true, operatorPaused: false, control: 'autonomous' });
   });
 
   it('renders only the latest pending map using facts updated after event creation', async () => {
@@ -164,6 +208,7 @@ describe('GeneralsWorldProxy with a real engine and local protocol server', () =
 
   it('runs autonomous moves without model replies and suspends and resumes across operator pauses', async () => {
     const f = await fixture({ initialPaused: true });
+    expect(f.proxy.webUi().lamps).toContainEqual(expect.objectContaining({ label: '暂停联动', state: 'online' }));
     expect(await f.call('join_private', { room: 'fixture-room' })).toMatchObject({ failed: true, text: expect.stringContaining('Operator paused') });
     expect(await f.call('start_agent')).toMatchObject({ failed: true, text: expect.stringContaining('Operator paused') });
     f.proxy.onOperatorPausedChanged(false);
@@ -174,7 +219,7 @@ describe('GeneralsWorldProxy with a real engine and local protocol server', () =
     f.update(1, [20, 0, 0]);
     await waitFor(async () => JSON.parse(await f.call('observe') as string).view?.turn === 1);
     const status = JSON.parse(await f.call('agent_status') as string);
-    expect(status).toMatchObject({ operatorPaused: true, control: 'autonomous' });
+    expect(status).toMatchObject({ operatorPauseLinked: true, operatorPaused: true, control: 'autonomous' });
     expect(f.packets.some((packet) => packet.includes('attack'))).toBe(false);
     f.proxy.onOperatorPausedChanged(false);
     f.update(2, [21, 0, 0]);

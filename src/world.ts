@@ -43,6 +43,7 @@ export class GeneralsWorld implements World {
   private controlEpoch = 0;
   private control: 'manual' | 'autonomous' = 'manual';
   private operatorPaused = false;
+  private operatorPauseLinked = false;
   private observationRevision = 0;
   private agentLastTurn = -1;
   private agentForceStart = false;
@@ -129,6 +130,7 @@ export class GeneralsWorld implements World {
   }
 
   onOperatorPausedChanged(paused: boolean): void {
+    this.operatorPauseLinked = true;
     if (this.operatorPaused === paused) return;
     this.operatorPaused = paused;
     this.controlEpoch++;
@@ -619,7 +621,8 @@ export class GeneralsWorld implements World {
     }
     return {
       gameId: this.gameId, controlEpoch: this.controlEpoch, control: this.control,
-      operatorPaused: this.operatorPaused, phase: this.phase, observedTurn: this.state?.turn ?? null,
+      operatorPaused: this.operatorPaused, operatorPauseLinked: this.operatorPauseLinked,
+      phase: this.phase, observedTurn: this.state?.turn ?? null,
       method: 'bounded_rule_search', activeIntentRevision: this.intents.snapshot().active?.revision ?? null,
       intent: this.intents.snapshot(),
       supportedRules: 'standard_or_city_state_1v1', error: this.agentError,

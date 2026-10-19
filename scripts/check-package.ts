@@ -152,6 +152,25 @@ async function smoke(definition: WorldDefinition<GeneralsConfigSection>): Promis
       streamController.abort();
       await reader?.cancel().catch(() => {});
     }
+    await call('start_agent');
+    const attacks = () => packets.filter(([name]) => name === 'attack').length;
+    const manualAttacks = attacks();
+    const agentMap = [3, 1, 20, 0, 0, 0, -1, 1];
+    send('game_update', {
+      turn: 2, map_diff: [0, agentMap.length, ...agentMap], cities_diff: [0, 0], generals: [0, 2], attackIndex: 1,
+      scores: [{ i: 0, total: 20, tiles: 1 }, { i: 1, total: 0, tiles: 1 }],
+    });
+    await until(() => attacks() > manualAttacks);
+    assert.equal(JSON.parse(await call('agent_status') as string).operatorPauseLinked, false);
+    await call('stop_agent');
+    assert.equal(JSON.parse(await call('agent_status') as string).control, 'manual');
+    const stoppedAttacks = attacks();
+    send('game_update', {
+      turn: 3, map_diff: [0, agentMap.length, ...agentMap], cities_diff: [0, 0], generals: [0, 2], attackIndex: 2,
+      scores: [{ i: 0, total: 20, tiles: 1 }, { i: 1, total: 0, tiles: 1 }],
+    });
+    await until(async () => JSON.parse(await call('observe') as string).view.turn === 3);
+    assert.equal(attacks(), stoppedAttacks, 'Revoking S1 must stop autonomous moves without pause integration');
     assert.ok(!store.range({ source: 'generals' }).some((event) => event.text.includes('package-smoke-account')),
       'Account credentials must not appear in events');
   } finally {
@@ -193,7 +212,7 @@ try {
   for (const warning of report.warnings) console.warn(warning);
   assert.ok(existsSync(join(packedRoot, 'src/ENV_PROMPT.md')));
   await smoke(definition);
-  console.log(`${manifest.name}@${manifest.version}: npm tarball, dry mount, engine, manual move, viewer and SSE passed`);
+  console.log(`${manifest.name}@${manifest.version}: npm tarball, dry mount, engine, manual move, unpatched-host S1, viewer and SSE passed`);
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }

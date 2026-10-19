@@ -97,7 +97,7 @@ async function handle(req: EngineRequest, signal: AbortSignal): Promise<unknown>
     if (world) throw new Error('Generals engine is already initialized');
     paused = req.init.paused;
     world = new GeneralsWorld(req.init.cfg, req.init.userId, req.init.timezone);
-    world.onOperatorPausedChanged(paused);
+    if (req.init.pauseLinked) world.onOperatorPausedChanged(paused);
     await world.start(host);
     signal.throwIfAborted();
     pushStatus();

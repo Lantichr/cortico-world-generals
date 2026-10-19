@@ -6,13 +6,13 @@ Owner: [`src/definition.ts`](src/definition.ts), [`src/config.ts`](src/config.ts
 
 A [Cortico](https://github.com/Pal-AI-Lab/Cortico) World for the generals.io Bot Server. It provides game observations, manual movement tools, a local board viewer, and an optional S1 agent with rule-based tactics and bounded search. A model can act as S2 by giving S1 structured strategic goals.
 
-This release candidate targets **Cortico 0.2.3, World API 6**. Manual tools and the viewer work with that host. **Autonomous S1 requires the host operator-pause hook** supplied in [host compatibility](docs/host-compatibility.md); `generals_start_agent` rejects delegation when the hook is unavailable. The package uses the Bot Server, with human players joining at `bot.generals.io`.
+This release candidate targets **Cortico 0.2.3, World API 6**. Manual tools, the viewer and autonomous S1 work with the unmodified host. [Operator-pause integration](docs/host-compatibility.md) is optional. The package uses the Bot Server, with human players joining at `bot.generals.io`.
 
 ## Requirements
 
 - A Cortico host supporting World API 6, with Node.js 22.15 or later.
 - A private Bot Server account identifier and network access to `botws.generals.io`.
-- For S1: the host compatibility patch and a standard or City-State 1v1 room.
+- For S1: a standard or City-State 1v1 room.
 
 The World id is `generals`. The host must not contain an in-tree registration with the same id; setting that World's `enabled=false` does not remove the registration. Hosts using World API 5 must upgrade to an API 6 host before installing this package. See [host compatibility](docs/host-compatibility.md) for migration; retain `worlds.generals`, the deployment `.env` and Memory.
 
@@ -46,7 +46,7 @@ Before publication, clone this repository, run `pnpm install`, and select its di
 
 4. For manual play, call `generals_join_private({"room":"your-room"})`. A `join-requested` phase only confirms the request; wait for `phase=lobby`. A human can join `https://bot.generals.io/games/your-room`. Use `generals_set_force_start({"enabled":true})` to vote to start, then read the map and submit adjacent moves.
 
-5. For autonomous play on a compatible host, call `generals_start_agent({"room":"your-room","forceStart":true})`. S1 joins the room and votes after admission. It can play without further model replies. S2 can optionally use `generals_strategy_brief` and `generals_set_intent` to select goals; read [the control contract](docs/contracts.md#control-and-strategic-intents) before replacing an intent.
+5. For autonomous play, call `generals_start_agent({"room":"your-room","forceStart":true})`. S1 joins the room and votes after admission. It can play without further model replies. S2 can optionally use `generals_strategy_brief` and `generals_set_intent` to select goals; read [the control contract](docs/contracts.md#control-and-strategic-intents) before replacing an intent.
 
 6. Open **对局画面** on the Generals World page to watch. After a result, call `generals_leave` before joining another game. S1 delegation lasts one game.
 
@@ -61,6 +61,7 @@ The read-only viewer listens on `127.0.0.1`. It shows the current fog view, play
 ## Boundaries
 
 - S1 supports confirmed standard and City-State 1v1 rules. Unsupported rules, allied transfers and tunnels stop autonomous control.
+- Without optional pause integration, the host's global pause leaves S1 running. Use `generals_stop_agent` to revoke delegation and request queue clearing, or deactivate the World. The remote game continues; processed moves cannot be recalled.
 - There is no automatic reconnection. Restarting the World creates a fresh connection without restoring the room, start vote, delegation or intent.
 - Current observations, last-seen facts and policy estimates have separate meanings. Hidden armies are not refreshed from history.
 - Movement receipts confirm transmission. Known-mountain steps are skipped while later steps remain in order; filtering can leave a disconnected route.
@@ -92,7 +93,7 @@ pnpm check:host-patch
 
 Tests use local WebSocket/HTTP servers, an engine child process and a deterministic arena. They require no account, real bot or external network. The arena uses scripted opponents; its results do not measure strength against human players.
 
-The npm package ships TypeScript source and local viewer assets. Version `0.1.0-rc.1` is intended for the `next` dist-tag. Publishing is performed separately from local checks.
+The npm package ships TypeScript source and local viewer assets. Version `0.1.0-rc.2` is intended for the `next` dist-tag. Publishing is performed separately from local checks.
 
 ## License
 

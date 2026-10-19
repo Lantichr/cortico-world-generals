@@ -41,6 +41,7 @@ export interface StrategyBrief {
   phase: string;
   control: AgentReport['control'];
   operatorPaused: boolean;
+  operatorPauseLinked: boolean;
   intent: {
     status: AgentReport['intent']['status'];
     reasonCode: string | null;
@@ -169,7 +170,7 @@ export function createStrategyBrief(observation: AgentObservation | null, status
   const home = current?.tiles[current.generals[current.playerIndex]];
   return { gameId: status.gameId, controlEpoch: status.controlEpoch, turn: current?.turn ?? status.observedTurn,
     playerIndex: current?.playerIndex ?? null,
-    phase: status.phase, control: status.control, operatorPaused: status.operatorPaused,
+    phase: status.phase, control: status.control, operatorPaused: status.operatorPaused, operatorPauseLinked: status.operatorPauseLinked,
     intent: { status: status.intent.status, reasonCode: code(status.intent.reason),
       active: active ? { revision: active.revision, goal: structuredClone(active.goal), expiresTurn: active.expiresTurn,
         reserves: active.constraints.reserves?.length ?? 0, avoidTiles: active.constraints.avoidTiles?.length ?? 0 } : null,
@@ -194,7 +195,8 @@ export function significantStrategyChange(previous: StrategyBrief | null, next: 
   if (previous.gameId !== next.gameId) return 'game_changed';
   if (previous.controlEpoch !== next.controlEpoch) return 'control_epoch_changed';
   if (previous.phase !== next.phase) return 'phase_changed';
-  if (previous.control !== next.control || previous.operatorPaused !== next.operatorPaused) return 'control_changed';
+  if (previous.control !== next.control || previous.operatorPaused !== next.operatorPaused
+    || previous.operatorPauseLinked !== next.operatorPauseLinked) return 'control_changed';
   if (previous.facts.basedOnTurn === null && next.facts.basedOnTurn !== null) return 'first_observation';
   if (previous.intent.status !== next.intent.status || previous.intent.active?.revision !== next.intent.active?.revision
     || previous.intent.lastRevision !== next.intent.lastRevision) return 'intent_changed';

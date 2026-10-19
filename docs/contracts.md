@@ -64,7 +64,9 @@ Gather results include coordinate `moves` suitable for `generals_queue_moves`, `
 
 ## Control and strategic intents
 
-Autonomous delegation requires a [compatible host pause integration](host-compatibility.md). The default control mode is `manual`; a host without that integration retains manual tools and observations, while `generals_start_agent` rejects delegation.
+The default control mode is `manual`. Autonomous delegation works on unmodified Cortico 0.2.3; [host pause integration](host-compatibility.md) is optional.
+
+`generals_agent_status`, `generals_observe.agent` and `generals_strategy_brief` include `operatorPauseLinked`, which becomes true after the host forwards a pause notification. `operatorPaused=false` only says this World is not currently blocking actions; it does not establish integration. Without integration, global pause leaves S1 running. With integration, pause stops new movement and autonomous start votes, invalidates the decision and intent, and requests queue clearing; resume retains delegation with a new control epoch. Use `generals_stop_agent` to revoke delegation and request queue clearing, or deactivate the World to stop its local engine. The remote game continues, and processed moves cannot be recalled.
 
 `generals_start_agent` explicitly delegates one game to S1, a rule-and-search agent that chooses expansion, exploration, city capture, gathering, defense, interception and general attacks without model calls. It supports confirmed standard or City-State 1v1 games; known unsupported rules, allied transfers and tunnels stop autonomous control with an error. This heuristic policy does not guarantee victory. S2 supplies optional strategic intents through World tools; S1 continues autonomous play without an intent or a model reply. `agent/contracts.ts` separates observations, decisions, actions, feedback and strategic intents.
 

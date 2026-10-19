@@ -2,7 +2,7 @@ Owner: [`src/config.ts`](../src/config.ts), [`src/proxy.ts`](../src/proxy.ts), [
 
 # Operations
 
-Installation and the first-game procedure are in the [English](../README.md#first-game) and [Chinese](../README_zh.md#第一局) quick starts. S1 also requires the [host pause integration](host-compatibility.md).
+Installation and the first-game procedure are in the [English](../README.md#first-game) and [Chinese](../README_zh.md#第一局) quick starts. [Host pause integration](host-compatibility.md) is optional.
 
 ## Configuration
 
@@ -56,15 +56,17 @@ The listener binds only `127.0.0.1`. An OBS browser source running on the same m
 
 The white border is a local cursor at the latest submitted destination. The Bot API supplies no selected-tile state. White arrows are locally submitted steps awaiting a reported processing index. Confirmation removes the arrows without proving combat success. A clear request removes the local display without claiming server acknowledgement.
 
-Pale blue arrows show S1's current plans, including gathering and defense branches. Only the next step is sent. A plan verified for its next step alone displays that step alone. Pause, control or intent changes, a new observation without a fresh decision, and game completion hide obsolete plans. A disconnect or leaving clears the board; a result retains the last observed board. Display zoom and board-only mode affect presentation and send no moves. Viewer routes are excluded from model-facing observations.
+Pale blue arrows show S1's current plans, including gathering and defense branches. Only the next step is sent. A plan verified for its next step alone displays that step alone. Linked operator pause, control or intent changes, a new observation without a fresh decision, and game completion hide obsolete plans. A disconnect or leaving clears the board; a result retains the last observed board. Display zoom and board-only mode affect presentation and send no moves. Viewer routes are excluded from model-facing observations.
 
 A viewer startup error, including a port conflict, appears on the World page while the game connection remains available. Choose another port and restart the World. The viewer reconnects its event stream at the same URL when the listener returns.
 
 ## Pause, takeover and recovery
 
-On a [compatible host](host-compatibility.md), operator pause stops new S1 movement and autonomous start votes, invalidates the decision and intent, and requests clearing pending moves. Resume retains the delegation with a new control epoch; S2 must submit a new intent if needed. Clearing cannot recall actions already processed.
+On unmodified Cortico 0.2.3, global pause stops event delivery while S1 continues playing. Check the World page or the [reported pause capability](contracts.md#control-and-strategic-intents) before relying on pause to stop actions.
 
-Use `generals_stop_agent` for manual takeover. It revokes delegation, invalidates the intent and requests clearing remaining moves. Inspect the current map and `moveProgress` before issuing a replacement route. Manual control has no S1 defense.
+With [optional host pause integration](host-compatibility.md), operator pause stops new S1 movement and autonomous start votes, invalidates the decision and intent, and requests clearing pending moves. Resume retains the delegation with a new control epoch; S2 must submit a new intent if needed.
+
+Use `generals_stop_agent` to stop S1 or take over manually. It revokes delegation, invalidates the intent and requests clearing remaining moves. Deactivating the World also stops its local engine. The remote game continues in either case, and clearing cannot recall actions already processed. Inspect the current map and `moveProgress` before issuing a replacement route. Manual control has no S1 defense.
 
 Disconnects, malformed transport/map data and engine exits require restarting the World. Restart creates a fresh connection with `phase=connected` and `room=null`; it restores no room, vote, delegation or intent. Old archived lobby events do not establish the new connection's admission. After `won` or `lost`, leave before joining another room and delegate again if S1 is desired.
 

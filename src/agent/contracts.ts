@@ -108,6 +108,8 @@ export interface AgentReport {
   controlEpoch: number;
   control: 'manual' | 'autonomous';
   operatorPaused: boolean;
+  /** Whether the host has supplied an operator-pause notification in this mount. */
+  operatorPauseLinked: boolean;
   phase: string;
   observedTurn: number | null;
   method: 'bounded_rule_search';

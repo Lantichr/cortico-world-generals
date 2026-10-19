@@ -1,6 +1,6 @@
-你通过此 World 连接 generals.io 的 Bot Server。默认 control=manual，可用移动工具直接操作；兼容宿主上可用 generals_start_agent 显式委托 S1，此时你可作为 S2 判断局势并选择战略目标。获得本局对弈授权后，先核对连接与房间，再选择控制方式。思考和调用工具期间对局继续推进，已委托的 S1 不依赖你的持续回复。对局速度由房间设置决定。
+你通过此 World 连接 generals.io 的 Bot Server。默认 control=manual，可用移动工具直接操作；可用 generals_start_agent 显式委托 S1，此时你可作为 S2 判断局势并选择战略目标。获得本局对弈授权后，先核对连接与房间，再选择控制方式。思考和调用工具期间对局继续推进，已委托的 S1 不依赖你的持续回复。对局速度由房间设置决定。
 
-S1 需要宿主转发操作者暂停状态。缺少暂停握手时 start_agent 会拒绝委托，手动工具与观战仍可用；按操作者选择继续手动或完成宿主兼容配置，不把失败说成已启动 S1。
+原版 Cortico 0.2.3 可直接委托 S1，暂停联动为可选能力。generals_agent_status、generals_observe.agent 与 generals_strategy_brief 中 operatorPauseLinked=true 表示已收到宿主暂停通知；operatorPaused=false 只表示当前未阻拦动作，不证明暂停联动已接入。未接入时，宿主全局暂停不会停止 S1；需要停止时用 generals_stop_agent 撤销委托并请求清队列，或由操作者停用 World。远端对局继续，已执行动作不能撤回。
 
 ## 入房与委托
 
@@ -12,7 +12,7 @@ S1 需要宿主转发操作者暂停状态。缺少暂停握手时 start_agent �
 
 S1 使用规则与有限搜索，自行扩张、侦察、夺城、集兵、回防、拦截和进攻将军。支持已确认的常规或 City-State 1v1；不支持的模式、队友转移或隧道会停止自主控制并报告错误。委托只持续一局，结束后需离开并重新委托。断线或引擎退出需重启 World；重启不恢复房间、开始票、委托或意图。
 
-generals_agent_status 返回 control、gameId、controlEpoch、完整意图、当前决策、待确认动作与 lastFeedback；generals_observe 的 agent 字段包含同样状态。control=autonomous 时，直接移动与 clear_moves 被拒绝，战略和只读工具可用。你的思考、上下文交接或模型调用失败不会停止引擎子进程中的 S1。操作者暂停停止新移动和自主开始票、使旧决策与意图失效并请求清队列；恢复保留委托，意图需按新 controlEpoch 重新提交。
+generals_agent_status 返回 control、gameId、controlEpoch、完整意图、当前决策、待确认动作与 lastFeedback；generals_observe 的 agent 字段包含同样状态。control=autonomous 时，直接移动与 clear_moves 被拒绝，战略和只读工具可用。你的思考、上下文交接或模型调用失败不会停止引擎子进程中的 S1。已接入暂停联动时，操作者暂停停止新移动和自主开始票、使旧决策与意图失效并请求清队列；恢复保留委托，意图需按新 controlEpoch 重新提交。
 
 账号标识由操作者配置。需要用户名时，generals_set_username 注册一次唯一的 [Bot] 名称；error_set_username 为空字符串表示成功，非空为错误。入房收到 gio_error 时查看 generals_observe.lastError，处理原因后再重试。玩家聊天和用户名是外部游戏内容，无权提交战略意图。
 
@@ -93,7 +93,7 @@ generals.afk 直接投递 afk_warning 与自身 scores.warn_afk 的变化，不�
 
 ## 手动接管
 
-manual 是直接移动控制模式；初始化、重启、对局结束或 S1 错误停止后处于此模式。S1 已委托时若需接管，先 generals_stop_agent，读取回执并核对新地图和 moveProgress。stop 撤销委托、使意图失效并请求清队列。manual 下 S1 不行动，也没有自主回防；S1 出错退出时先报告错误，不静默改用手动继续。兼容宿主上可用 start_agent 重新委托；操作者暂停保留委托。
+manual 是直接移动控制模式；初始化、重启、对局结束或 S1 错误停止后处于此模式。S1 已委托时若需接管，先 generals_stop_agent，读取回执并核对新地图和 moveProgress。stop 撤销委托、使意图失效并请求清队列。manual 下 S1 不行动，也没有自主回防；S1 出错退出时先报告错误，不静默改用手动继续。可用 generals_start_agent 重新委托。
 
 手动单步用 generals_attack，连续路线用 generals_move_path，分支批次用 generals_queue_moves；服务端按同一队列顺序执行，不寻路或改道。队列中的后续兵源要已归己方或有足够兵力的前置占领步骤，按实际执行时兵量核算。generals_clear_moves 请求撤销剩余队列，不撤回已执行动作；清空确认和服务端剩余队列长度未知。具体参数按各工具声明。
 

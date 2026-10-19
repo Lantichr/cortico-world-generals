@@ -38,9 +38,6 @@ export class GeneralsWorldProxy implements World {
       ...tool,
       handler: async (args, context) => {
         if (!this.ready) return { text: 'Generals engine is not running', failed: true };
-        if (tool.name === 'generals_start_agent' && !this.operatorPauseKnown) {
-          return { text: 'S1 requires a host that calls onOperatorPausedChanged before start and on every operator pause change. See docs/host-compatibility.md.', failed: true };
-        }
         try {
           return await this.rpc({
             kind: 'tool', name: tool.name, args, role: context.role,
@@ -55,9 +52,10 @@ export class GeneralsWorldProxy implements World {
 
   webUi(): WorldWebUiDecl {
     const decl = { ...this.declarations.webUi(), ...(this.declCache ?? {}) };
-    if (!this.operatorPauseKnown) {
-      decl.lamps = [...(decl.lamps ?? []), { label: 'S1', state: 'offline', hint: '宿主未提供 onOperatorPausedChanged；见 docs/host-compatibility.md' }];
-    }
+    decl.lamps = [...(decl.lamps ?? []), {
+      label: '暂停联动', state: this.operatorPauseKnown ? 'online' : 'offline',
+      hint: this.operatorPauseKnown ? 'S1 跟随宿主提供的暂停状态' : '全局暂停不停止 S1；使用 generals_stop_agent 或停用 World 停止',
+    }];
     return decl;
   }
 
@@ -84,7 +82,7 @@ export class GeneralsWorldProxy implements World {
       const viewer = { ...GENERALS_DEFAULTS.viewer, ...this.cfg.viewer };
       const port = viewer.port === 0 ? viewerPorts.get(this.cfg) ?? 0 : viewer.port;
       const cfg = { ...this.cfg, viewer: { ...viewer, port } };
-      await this.rpc({ kind: 'init', init: { cfg, userId: this.userId, timezone: this.timezone, paused: this.paused } }, this.cfg.connectTimeoutMs + 10_000);
+      await this.rpc({ kind: 'init', init: { cfg, userId: this.userId, timezone: this.timezone, paused: this.paused, pauseLinked: this.operatorPauseKnown } }, this.cfg.connectTimeoutMs + 10_000);
       if (this.child !== child || this.stopping) throw new Error('Generals engine stopped during startup');
       this.ready = true;
     } catch (error) {
@@ -110,6 +108,7 @@ export class GeneralsWorldProxy implements World {
     this.declCache = null;
     this.host = null;
     this.operatorPauseKnown = false;
+    this.paused = false;
   }
 
   private onExit(child: ChildProcess, code: number | null, signal: NodeJS.Signals | null): void {

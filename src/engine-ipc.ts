@@ -7,6 +7,7 @@ export interface EngineInit {
   userId: string;
   timezone: string;
   paused: boolean;
+  pauseLinked: boolean;
 }
 
 export type EngineRequest =
