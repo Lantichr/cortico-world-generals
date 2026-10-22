@@ -1,5 +1,5 @@
 import type { AgentObservation } from './contracts.ts';
-import { knownWall, neighbors, production, type PositionAnalysis } from './analysis.ts';
+import { knownWall, neighbors, production, type PositionAnalysis, type HomeDemand } from './analysis.ts';
 import { findHeldHomeScreen, searchRouteAlternatives, type Route, type SearchBudget } from './search.ts';
 import { createThreatTiming, type ThreatTiming } from './timing.ts';
 import { planGatheringTree } from './gather-tree.ts';
@@ -19,13 +19,7 @@ export interface DefensePlan {
   reason: string;
 }
 
-interface Demand {
-  tile: number;
-  steps: number;
-  requiredArmies: number;
-  basis: DefensePlan['basis'];
-  lastSeenTurn?: number;
-}
+type Demand = HomeDemand & { requiredArmies: number };
 
 interface ReinforcementState {
   armies: number[];
@@ -44,13 +38,8 @@ export function planDefense(observation: AgentObservation, analysis: PositionAna
   preferredArmy: number | null = null, timing = createThreatTiming(observation, analysis)): DefensePlan | null {
   const home = observation.tiles[analysis.home];
   if (!home || home.owner !== observation.playerIndex || home.armies === null) return null;
-  const demands: Demand[] = [
-    ...analysis.threats.map((threat) => ({ tile: threat.tile, steps: threat.distance,
-      requiredArmies: Math.max(0, threat.armies - threat.distance) + 1, basis: 'visible' as const })),
-    ...analysis.possibleThreats.map((threat) => ({ tile: threat.tile, steps: threat.minimumDistance,
-      requiredArmies: Math.max(0, threat.lastSeenArmies - threat.minimumDistance) + 1,
-      basis: 'history' as const, lastSeenTurn: threat.lastSeenTurn })),
-  ].filter((demand) => demand.requiredArmies > home.armies! + production(home, observation.turn, observation.turn + demand.steps))
+  const demands: Demand[] = analysis.homeDemands.map((demand) => ({ ...demand, requiredArmies: demand.required }))
+    .filter((demand) => demand.requiredArmies > home.armies! + production(home, observation.turn, observation.turn + demand.steps - 1))
     .sort((a, b) => a.steps - b.steps || b.requiredArmies - a.requiredArmies || Number(a.basis === 'history') - Number(b.basis === 'history'));
   const demand = demands[0];
   if (!demand) return null;
@@ -61,7 +50,7 @@ export function planDefense(observation: AgentObservation, analysis: PositionAna
   const initial: ReinforcementState = { armies: observation.tiles.map((tile) => tile.armies ?? 0), elapsed: 0,
     available: observation.tiles.map((tile) => tile.armies ?? 0),
     owners: observation.tiles.map((tile) => tile.owner), paths: [],
-    first: null, projectedArmies: home.armies + production(home, observation.turn, deadlineTurn) };
+    first: null, projectedArmies: home.armies + production(home, observation.turn, deadlineTurn - 1) };
   let best = initial;
   let frontier = [initial];
   const primaryBudget = budget.fork(Math.floor(budget.remainingNodes * 0.75));
@@ -115,7 +104,7 @@ export function planDefense(observation: AgentObservation, analysis: PositionAna
         available,
         owners: tree.projectedObservation.tiles.map((tile) => tile.owner), elapsed: tree.usedMoves,
         first: tree.route, paths: tree.paths,
-        projectedArmies: tree.projectedArmies + production(home, observation.turn + tree.usedMoves, deadlineTurn) };
+        projectedArmies: tree.projectedArmies + production(home, observation.turn + tree.usedMoves, deadlineTurn - 1) };
       if (better(candidate, best, demand.requiredArmies, preferredArmy)) { best = candidate; treeUsed = true; }
     }
   }
@@ -150,7 +139,8 @@ export function planDefense(observation: AgentObservation, analysis: PositionAna
       + (alternativesUsed ? ';route_search:bounded_alternatives' : '')
       + (treeUsed ? ';route_search:owned_gathering_tree' : '')
       + `;${demand.basis === 'history' ? `history_assumption:${demand.tile}@${demand.lastSeenTurn}` : `visible_enemy:${demand.tile}`}`
-      + ';assumption:ignore_friendly_screen;possible_enemy_paths;ignore_enemy_transit_resistance;no_enemy_reinforcement;same_turn_home_reinforcement_before_attack' };
+      + `;enemy_player:${demand.owner};enemy_sources:${demand.sources.join(',')};enemy_scenario:${demand.scenario}`
+      + ';assumption:ignore_friendly_screen;possible_enemy_paths;ignore_enemy_transit_resistance;no_enemy_reinforcement;same_turn_home_reinforcement_before_attack;cumulative_visible_sequences;historical_sources_alternative;selected_enemy_orders;attack_before_production' };
 }
 
 function topology(observation: AgentObservation, home: number, deadline: number, budget: SearchBudget,
@@ -231,7 +221,7 @@ function reinforce(observation: AgentObservation, home: number, state: Reinforce
   return { armies, available, owners, elapsed, paths: [...state.paths, path],
     first: state.first ?? { source: path[0], target: home, path, armies: armies[home],
       captured: path.slice(1).filter((index) => state.owners[index] !== observation.playerIndex).length, unknown: false, half: false },
-    projectedArmies: armies[home] + production(observation.tiles[home], observation.turn + elapsed, deadlineTurn) };
+    projectedArmies: armies[home] + production(observation.tiles[home], observation.turn + elapsed, deadlineTurn - 1) };
 }
 
 function better(candidate: ReinforcementState, current: ReinforcementState, required: number, preferred: number | null): boolean {

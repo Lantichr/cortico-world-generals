@@ -14,6 +14,15 @@ export interface AgentTile {
 
 export interface AgentHistory extends AgentTile { lastSeenTurn: number }
 
+/** Inactive players cannot issue moves; their remaining garrisons can still be captured. */
+export interface AgentPlayerLifecycle {
+  player: number;
+  status: 'active' | 'inactive' | 'eliminated';
+  basis: 'score' | 'captured' | 'neutralized' | 'unknown';
+  observedTurn: number;
+  generalIndex: number | null;
+}
+
 export interface AgentObservation {
   gameId: string;
   revision: number;
@@ -26,6 +35,7 @@ export interface AgentObservation {
   history: Array<AgentHistory | null>;
   generals: number[];
   scores: unknown[];
+  playerLifecycle?: AgentPlayerLifecycle[];
 }
 
 export interface AgentOptions {

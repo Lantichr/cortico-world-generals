@@ -2,14 +2,16 @@ import type { AgentObservation } from './contracts.ts';
 import { knownWall, neighbors, production, type PositionAnalysis } from './analysis.ts';
 import type { DefensePlan } from './defense.ts';
 import { findHeldHomeScreen, searchRouteAlternatives, type Route, type SearchBudget } from './search.ts';
+import { canPlayerAct, resolvePlayerLifecycles } from './lifecycle.ts';
 
-interface EnemySource { tile: number; armies: number; age: number; basis: 'visible' | 'history' }
+interface EnemySource { tile: number; owner: number; armies: number; age: number; basis: 'visible' | 'history' }
 interface DistanceSearch { distance: number[]; queue: number[]; head: number }
 
 /** Arrival is a lower bound and armies an upper bound: intervening garrisons provide no assumed resistance. */
 export interface RouteExposure {
   tile: number;
   enemy: number;
+  owner: number;
   arrivalTurns: number;
   armies: number;
   basis: 'visible' | 'history';
@@ -24,10 +26,11 @@ export interface ThreatTiming {
 
 /** Distance searches resume only when a force can beat the queried garrison within the queried time. */
 export function createThreatTiming(observation: AgentObservation, analysis: PositionAnalysis): ThreatTiming {
+  observation = { ...observation, playerLifecycle: resolvePlayerLifecycles(observation) };
   const sources: EnemySource[] = [
-    ...analysis.enemies.filter((tile) => tile.armies! > 1)
-      .map((tile) => ({ tile: tile.index, armies: tile.armies!, age: 0, basis: 'visible' as const })),
-    ...analysis.possibleThreats.map((threat) => ({ tile: threat.tile, armies: threat.lastSeenArmies,
+    ...analysis.enemies.filter((tile) => tile.armies! > 1 && canPlayerAct(observation, tile.owner!))
+      .map((tile) => ({ tile: tile.index, owner: tile.owner!, armies: tile.armies!, age: 0, basis: 'visible' as const })),
+    ...analysis.possibleThreats.map((threat) => ({ tile: threat.tile, owner: threat.owner, armies: threat.lastSeenArmies,
       age: observation.turn - threat.lastSeenTurn, basis: 'history' as const })),
   ].sort((a, b) => b.armies - a.armies || a.age - b.age || a.tile - b.tile);
   const searches = new Map<number, DistanceSearch>();
@@ -64,7 +67,7 @@ export function createThreatTiming(observation: AgentObservation, analysis: Posi
       if (distance === undefined) return undefined;
       const arrivalTurns = Math.max(source.basis === 'history' ? 1 : 0, distance - source.age);
       const armies = source.armies - Math.max(0, distance - source.age);
-      if (arrivalTurns <= throughTurns && armies >= friendlyArmies) return { tile: index, enemy: source.tile,
+      if (arrivalTurns <= throughTurns && armies >= friendlyArmies) return { tile: index, enemy: source.tile, owner: source.owner,
         arrivalTurns, armies, basis: source.basis };
     }
     return null;
@@ -78,6 +81,46 @@ export interface MissionTiming {
   slackTurns: number | null;
   returnRoute: Route | null;
   reason: string;
+}
+
+/** A terminal one-tick capture must survive either attack order, visible reinforcement and a mutual general attack. */
+export function assessImmediateGeneralCapture(observation: AgentObservation, analysis: PositionAnalysis, route: Route): MissionTiming | null {
+  if (route.path.length !== 2 || observation.generals.length !== 2) return null;
+  const source = observation.tiles[route.source], target = observation.tiles[route.target];
+  if (!target.visible || !target.general || target.owner === null || target.owner === observation.playerIndex
+    || !analysis.enemyGenerals.includes(target.index) || source.owner !== observation.playerIndex || source.armies === null) return null;
+  const sent = route.half ? Math.floor(source.armies / 2) : source.armies - 1;
+  const home = observation.tiles[analysis.home];
+  const homeAfterMove = home.armies! - (source.index === home.index ? sent : 0);
+  if (analysis.homeDemands.some((demand) => demand.steps <= 1 && demand.required > homeAfterMove)) return null;
+  const score = observation.scores.find((value) => value && typeof value === 'object'
+    && !Array.isArray(value) && (value as Record<string, unknown>).i === target.owner) as Record<string, unknown> | undefined;
+  const visibleArmies = observation.tiles.filter((tile) => tile.visible && tile.owner === target.owner)
+    .reduce((sum, tile) => sum + tile.armies!, 0);
+  const noHiddenArmies = Number.isSafeInteger(score?.total) && score!.total === visibleArmies;
+  let reinforcement = 0;
+  for (const [index, purpose] of [[source.index, 'source'], [target.index, 'target']] as const) {
+    for (const neighbor of neighbors(index, observation.width, observation.height)) {
+      const tile = observation.tiles[neighbor];
+      if (!tile.visible) {
+        if (noHiddenArmies) continue;
+        return null;
+      }
+      if (tile.owner === null || tile.owner === observation.playerIndex || !canPlayerAct(observation, tile.owner)) continue;
+      if (purpose === 'source') {
+        for (const damage of [tile.armies! - 1, Math.floor(tile.armies! / 2)]) {
+          const surviving = source.armies - damage;
+          const survivingSent = route.half ? Math.floor(surviving / 2) : surviving - 1;
+          const defending = target.armies! - (tile.index === target.index ? damage : 0);
+          if (survivingSent <= defending) return null;
+        }
+      } else if (tile.owner === target.owner) reinforcement = Math.max(reinforcement, Math.max(0, tile.armies! - 1));
+    }
+  }
+  if (analysis.possibleThreats.some((threat) => threat.minimumDistance <= 1)) return null;
+  if (sent <= target.armies! + reinforcement) return null;
+  return { status: 'safe', deadlineTurn: null, returnTurns: null, slackTurns: null, returnRoute: null,
+    reason: 'one_tick_general_capture;checked_visible_reinforcement;checked_source_damage;checked_mutual_general_attack;assumption:no_unseen_enemy_reinforcement;attack_before_production' };
 }
 
 /** Projects a current-visible route against stationary garrisons and common production. */
@@ -166,23 +209,19 @@ export function assessMissionPlanTiming(observation: AgentObservation, analysis:
     slackTurns: number | null, reason: string): MissionTiming => ({ status, deadlineTurn, returnRoute,
     returnTurns: returnRoute ? returnRoute.path.length - 1 : null, slackTurns,
     reason: `${reason};deadline_turn:${deadlineTurn ?? 'none'};return_moves:${returnRoute ? returnRoute.path.length - 1 : 'unknown'}`
-      + `;slack:${slackTurns ?? 'unknown'};assumption:possible_enemy_paths;ignore_enemy_transit_resistance;no_enemy_reinforcement;stationary_visible_garrisons` });
+      + `;slack:${slackTurns ?? 'unknown'};assumption:possible_enemy_paths;ignore_enemy_transit_resistance;no_enemy_reinforcement;stationary_visible_garrisons;cumulative_visible_sequences;historical_sources_alternative;selected_enemy_orders;attack_before_production` });
   const originalHome = observation.tiles[analysis.home];
-  const demands = [
-    ...analysis.threats.map((threat) => ({ steps: threat.distance, required: Math.max(0, threat.armies - threat.distance) + 1 })),
-    ...analysis.possibleThreats.map((threat) => ({ steps: threat.minimumDistance,
-      required: Math.max(0, threat.lastSeenArmies - threat.minimumDistance) + 1 })),
-  ].sort((a, b) => a.steps - b.steps || b.required - a.required);
+  const demands = analysis.homeDemands;
   const withdrawn = new Set(routes.flatMap((route) => route.path.slice(0, -1)));
   const needsCoverage = withdrawn.has(analysis.home) || demands.some((candidate) => candidate.required > originalHome.armies!
-    + production(originalHome, observation.turn, observation.turn + candidate.steps));
+    + production(originalHome, observation.turn, observation.turn + candidate.steps - 1));
   const screen = needsCoverage ? findHeldHomeScreen(observation, analysis, budget,
     { withdrawn, homeArmies: originalHome.armies! }) : null;
   const screenArmies = screen ? observation.tiles[screen.tile].armies! : 0;
   let demand = demands.find((candidate) => candidate.required > originalHome.armies!
-    + production(originalHome, observation.turn, observation.turn + candidate.steps)
+    + production(originalHome, observation.turn, observation.turn + candidate.steps - 1)
     && !(screen && originalHome.armies! + screenArmies
-      + production(originalHome, observation.turn, observation.turn + candidate.steps) >= screen.enemyArmies));
+      + production(originalHome, observation.turn, observation.turn + candidate.steps - 1) >= screen.enemyArmies));
   let deadlineTurn = demand ? observation.turn + demand.steps : null;
   if (demand) {
     let plannedMoves = 0, firstHomeMove = Infinity;
@@ -209,8 +248,9 @@ export function assessMissionPlanTiming(observation: AgentObservation, analysis:
   const screenTimeline = [screenArmies];
   const unmetArrival = (timeline: number[], completionMoves: number, homeArmies: number,
     heldTimeline = screenTimeline, heldArmies = screen ? available[screen.tile] : 0, useScreen = true) => demands.find((candidate) => {
-    const armies = candidate.steps <= completionMoves ? timeline[candidate.steps]
-      : homeArmies + production(originalHome, observation.turn + completionMoves, observation.turn + candidate.steps);
+    const armies = (candidate.steps <= completionMoves ? timeline[candidate.steps]
+      : homeArmies + production(originalHome, observation.turn + completionMoves, observation.turn + candidate.steps))
+      - production(originalHome, observation.turn + candidate.steps - 1, observation.turn + candidate.steps);
     const held = candidate.steps <= completionMoves ? heldTimeline[candidate.steps] : heldArmies;
     return candidate.required > armies && !(useScreen && screen && armies + held >= screen.enemyArmies);
   });
@@ -221,6 +261,10 @@ export function assessMissionPlanTiming(observation: AgentObservation, analysis:
       if (waiting) return result('unsafe', deadlineTurn, null, null, `mission_waiting_source_exposed:${route.source};enemy:${waiting.enemy}`);
     }
     for (let step = 1; step < route.path.length; step++) {
+      if (route.path[step - 1] === analysis.home && !screen
+        && demands.some((candidate) => candidate.steps <= moves && candidate.required > 1)) {
+        return result('unsafe', null, null, null, 'mission_home_outflow_after_possible_attack;damaged_garrison_projection_unavailable');
+      }
       const waitingTile = current.tiles[route.path[step]];
       if (waitingTile.owner === observation.playerIndex && waitingTile.index !== analysis.home) {
         const waiting = timing.exposure(waitingTile.index, moves, available[waitingTile.index], budget);
@@ -296,7 +340,7 @@ export function assessMissionPlanTiming(observation: AgentObservation, analysis:
   const verifyReturn = (candidate: Route | null): MissionTiming => {
     if (!candidate) return result(budget.exhausted ? 'unknown' : 'unsafe', deadlineTurn, null, null, 'no_timely_visible_return');
     const returnMoves = candidate.path.length - 1, slack = demand!.steps - moves - returnMoves;
-    const combined = candidate.armies + production(home, current.turn + returnMoves, deadlineTurn!);
+    const combined = candidate.armies + production(home, current.turn + returnMoves, deadlineTurn! - 1);
     let returningPosition = current;
     const returningAvailable = [...available];
     const returningHomeTimeline = [...homeTimeline];

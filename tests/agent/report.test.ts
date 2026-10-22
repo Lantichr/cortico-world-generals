@@ -71,6 +71,23 @@ describe('Generals strategy brief', () => {
     expect(brief.facts).toMatchObject({ basedOnTurn: null, home: null, ownCities: null, ownForces: [], scores: [] });
   });
 
+  it('separates inactive players from eliminated players while retaining current static garrisons', () => {
+    const view = observation();
+    view.scores = [{ i: 1, total: 140, tiles: 4, dead: true }, { i: 0, total: 130, tiles: 5, dead: false }];
+    const inactive = createStrategyBrief(view, status());
+    expect(inactive.facts.players).toEqual([
+      { player: 0, status: 'active', basis: 'score' }, { player: 1, status: 'inactive', basis: 'score' },
+    ]);
+    expect(inactive.facts.enemyForces[0]).toMatchObject({ player: 1, armies: 50 });
+    expect(inactive.facts.enemyGenerals).toEqual([{ player: 1, knownPosition: { x: 3, y: 1 }, currentArmies: 20, lastSeen: null }]);
+    Object.assign(view.tiles[8], { owner: 0, terrain: 0, general: false, city: true });
+    view.playerLifecycle = [{ player: 1, status: 'eliminated', basis: 'captured', observedTurn: 101, generalIndex: 8 }];
+    Object.assign(view.tiles[8], { visible: false, terrain: -3, owner: null, armies: null, general: null, city: null });
+    const eliminated = createStrategyBrief(view, status());
+    expect(eliminated.facts.players).toContainEqual({ player: 1, status: 'eliminated', basis: 'captured' });
+    expect(eliminated.facts.enemyGenerals).toEqual([]);
+  });
+
   it('dates score net changes from the last published brief and matches players by index', () => {
     const first = observation(), baseline = createStrategyBrief(first, status());
     const suppressed = structuredClone(first);
@@ -148,6 +165,18 @@ describe('Generals strategy brief', () => {
 });
 
 describe('significant strategy changes', () => {
+  it('reports lifecycle changes once independently of force growth', () => {
+    const view = observation(), baseline = createStrategyBrief(view, status());
+    (view.scores[0] as Record<string, unknown>).dead = true;
+    const inactive = createStrategyBrief(view, status());
+    expect(significantStrategyChange(baseline, inactive)).toBe('player_lifecycle_changed');
+    expect(significantStrategyChange(inactive, createStrategyBrief(view, status(), inactive))).toBeNull();
+    Object.assign(view.tiles[8], { owner: null, terrain: -1, general: false, city: true });
+    const eliminated = createStrategyBrief(view, status());
+    expect(significantStrategyChange(inactive, eliminated)).toBe('player_lifecycle_changed');
+    expect(eliminated.facts.players).toContainEqual({ player: 1, status: 'eliminated', basis: 'neutralized' });
+  });
+
   it('reports the first map even when an earlier control-only brief was published', () => {
     const initial = createStrategyBrief(null, status());
     expect(significantStrategyChange(null, initial)).toBe('initial');

@@ -1,3 +1,6 @@
+import type { AgentPlayerLifecycle } from './agent/contracts.ts';
+import { resolvePlayerLifecycles } from './agent/lifecycle.ts';
+
 function integers(value: unknown): number[] {
   if (!Array.isArray(value) || !value.every(Number.isSafeInteger)) throw new Error('Expected an integer array');
   return value;
@@ -45,6 +48,7 @@ export class GeneralsState {
   private scores: unknown[] = [];
   private history: Array<SeenTile | null> = [];
   private generalHistory: Array<SeenTile | null> = [];
+  private lifecycle: AgentPlayerLifecycle[] = [];
   turn = -1;
   width = 0;
   height = 0;
@@ -72,6 +76,7 @@ export class GeneralsState {
     if (width !== this.width || height !== this.height) {
       this.history = Array<SeenTile | null>(size).fill(null);
       this.generalHistory = [];
+      this.lifecycle = [];
     }
     this.map = map;
     this.cities = cities;
@@ -92,6 +97,16 @@ export class GeneralsState {
       const tile = this.tile(index);
       if (tile.owner === player && tile.general) this.generalHistory[player] = { ...tile, lastSeenTurn: this.turn };
     });
+    const observation = { turn: this.turn, generals: Array.from({ length: this.playerCount() }, (_, player) => generals[player] ?? -1),
+      scores: this.scores, history: this.history, playerLifecycle: this.lifecycle,
+      tiles: Array.from({ length: size }, (_, index) => this.tile(index)) };
+    this.lifecycle = resolvePlayerLifecycles(observation);
+    for (const player of this.lifecycle) if (player.status === 'eliminated'
+      || this.generalHistory[player.player]?.index !== player.generalIndex) this.generalHistory[player.player] = null;
+  }
+
+  playerLifecycle(): AgentPlayerLifecycle[] {
+    return this.lifecycle.map((entry) => ({ ...entry }));
   }
 
   lastSeen(index: number): SeenTile | null {
@@ -139,7 +154,7 @@ export class GeneralsState {
     return {
       playerIndex: this.playerIndex, turn: this.turn, width: this.width, height: this.height,
       selfScore: this.ownScore(), selfTiles, selfGeneral: general >= 0 ? this.tile(general) : null,
-      enemyGenerals: this.enemyGenerals(),
+      enemyGenerals: this.enemyGenerals(), playerLifecycle: this.playerLifecycle(),
       ...(generalEnemyNeighbors ? { generalEnemyNeighbors } : {}),
       armies: this.map.slice(2, 2 + size), terrain: this.map.slice(2 + size, 2 + 2 * size),
       tunnelLimits: this.map.length === 2 + 3 * size ? this.map.slice(2 + 2 * size) : Array(size).fill(0),
@@ -149,7 +164,7 @@ export class GeneralsState {
   }
 
   compactSnapshot(): Record<string, unknown> {
-    const { armies, terrain, tunnelLimits, playerIndex, turn, width, height, selfScore, selfGeneral, enemyGenerals, generalEnemyNeighbors, scores } = this.snapshot();
+    const { armies, terrain, tunnelLimits, playerIndex, turn, width, height, selfScore, selfGeneral, enemyGenerals, playerLifecycle, generalEnemyNeighbors, scores } = this.snapshot();
     const size = this.width * this.height;
     const cities = new Set(this.cities), generals = new Set(this.generals.filter((index) => index >= 0));
     const cells = Array.from({ length: size }, (_, index) => {
@@ -171,7 +186,7 @@ export class GeneralsState {
     });
     const header = `y\\x ${Array.from({ length: this.width }, (_, x) => x).join(' ')}`;
     const rows = Array.from({ length: this.height }, (_, y) => `${y} ${cells.slice(y * this.width, (y + 1) * this.width).join(' ')}`);
-    return { playerIndex, turn, width, height, selfScore, selfGeneral, enemyGenerals, ...(generalEnemyNeighbors ? { generalEnemyNeighbors } : {}), scores, playerLegend: this.playerLegend(), format: 'compact', grid: [header, ...rows].join('\n') };
+    return { playerIndex, turn, width, height, selfScore, selfGeneral, enemyGenerals, playerLifecycle, ...(generalEnemyNeighbors ? { generalEnemyNeighbors } : {}), scores, playerLegend: this.playerLegend(), format: 'compact', grid: [header, ...rows].join('\n') };
   }
 
   private generalEnemyNeighbors(): string {
@@ -207,8 +222,11 @@ export class GeneralsState {
       const relation = this.playerRelation(player);
       if (relation === '我' || relation === '队友') return null;
       const id = `p${player}${relation === '关系未知' ? '?' : ''}`;
+      const lifecycle = this.lifecycle.find((entry) => entry.player === player);
+      if (lifecycle?.status === 'eliminated') return `${id} eliminated:${lifecycle.basis}`;
       const seen = this.generalHistory[player];
-      return seen ? `${id} G(${seen.x},${seen.y}) ${seen.armies}@${seen.lastSeenTurn} ${seen.lastSeenTurn === this.turn ? 'seen' : 'last'}` : `${id} G?`;
+      const general = seen ? `${id} G(${seen.x},${seen.y}) ${seen.armies}@${seen.lastSeenTurn} ${seen.lastSeenTurn === this.turn ? 'seen' : 'last'}` : `${id} G?`;
+      return lifecycle?.status === 'inactive' ? `${general} inactive` : general;
     }).filter((line) => line !== null).join('\n');
   }
 

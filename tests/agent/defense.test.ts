@@ -88,9 +88,9 @@ describe('serial general defense planning', () => {
   it('combines two insufficient reinforcements within one shared move deadline', () => {
     const observation = board(5, 3, 12, 2, 11);
     own(observation, 11, 6);
-    expect(plan(observation)).toMatchObject({ requiredArmies: 10, projectedArmies: 7, status: 'partial' });
+    expect(plan(observation)).toMatchObject({ requiredArmies: 10, projectedArmies: 6, status: 'partial' });
     own(observation, 13, 6);
-    expect(plan(observation)).toMatchObject({ requiredArmies: 10, projectedArmies: 12, deadlineTurn: 102, status: 'sufficient',
+    expect(plan(observation)).toMatchObject({ requiredArmies: 10, projectedArmies: 11, deadlineTurn: 102, status: 'sufficient',
       route: { target: 12, path: [11, 12], armies: 6 } });
   });
 
@@ -100,7 +100,7 @@ describe('serial general defense planning', () => {
     own(observation, 29, 6);
     own(observation, 23, 6);
     const before = structuredClone(observation);
-    expect(plan(observation)).toMatchObject({ requiredArmies: 19, projectedArmies: 18, status: 'partial', deadlineTurn: 104 });
+    expect(plan(observation)).toMatchObject({ requiredArmies: 19, projectedArmies: 17, status: 'partial', deadlineTurn: 104 });
     expect(observation).toEqual(before);
   });
 
@@ -141,7 +141,7 @@ describe('serial general defense planning', () => {
     own(observation, 1, 2);
     own(observation, 2, 25);
     own(observation, 3, 1);
-    expect(plan(observation)).toMatchObject({ status: 'sufficient', requiredArmies: 12, projectedArmies: 30,
+    expect(plan(observation)).toMatchObject({ status: 'sufficient', requiredArmies: 12, projectedArmies: 29,
       actionRequired: false, route: { source: 2, target: 0 } });
   });
 
@@ -150,8 +150,8 @@ describe('serial general defense planning', () => {
     own(observation, 11, 6);
     const budget = new SearchBudget(0, 1000);
     const result = planDefense(observation, analyzePosition(observation), budget);
-    expect(result).toMatchObject({ route: null, requiredArmies: 10, projectedArmies: 2, status: 'unavailable' });
-    expect(result?.reason).toContain('gap:8');
+    expect(result).toMatchObject({ route: null, requiredArmies: 10, projectedArmies: 1, status: 'unavailable' });
+    expect(result?.reason).toContain('gap:9');
     expect(budget.nodes).toBe(0);
   });
 
@@ -186,6 +186,15 @@ describe('serial general defense planning', () => {
     own(observation, 17, 38);
     own(observation, 11, 24);
     own(observation, 12, 1);
-    expect(plan(observation)).toMatchObject({ route: null, paths: [], projectedArmies: 39, status: 'unavailable' });
+    expect(plan(observation)).toMatchObject({ route: null, paths: [], projectedArmies: 38, status: 'unavailable' });
+  });
+
+  it('cannot spend turn-fifty recruitment before an adjacent attack has resolved', () => {
+    const observation = board(2, 1, 0, 1, 4);
+    observation.turn = 49;
+    own(observation, 0, 2);
+    expect(analyzePosition(observation)).toMatchObject({ homeReserve: 4 });
+    expect(plan(observation)).toMatchObject({ requiredArmies: 4, projectedArmies: 2,
+      deadlineTurn: 50, status: 'unavailable', actionRequired: true });
   });
 });

@@ -546,6 +546,7 @@ export class GeneralsWorld implements World {
       tiles: Array.from({ length: state.width * state.height }, (_, index) => state.tile(index)),
       history: Array.from({ length: state.width * state.height }, (_, index) => state.lastSeen(index)),
       generals: view.generals as number[], scores: view.scores as unknown[],
+      playerLifecycle: state.playerLifecycle(),
     };
   }
 

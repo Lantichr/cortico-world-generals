@@ -2,6 +2,7 @@ import type { AgentDecision, AgentObservation, AgentTaskKind, StrategyIntent } f
 import { knownWall, neighbors, production, type PositionAnalysis } from './analysis.ts';
 import type { Route, SearchBudget } from './search.ts';
 import type { TaskCandidate } from './tasks.ts';
+import { knownGeneralIndex, playerLifecycle } from './lifecycle.ts';
 
 export interface StrategyFeedback {
   revision: number;
@@ -17,8 +18,7 @@ export function activeStrategyIntent(observation: AgentObservation, intent?: Str
 export function strategyTarget(observation: AgentObservation, intent: StrategyIntent): number | null {
   if ('target' in intent.goal) return intent.goal.target.y * observation.width + intent.goal.target.x;
   if (intent.goal.kind !== 'attack_general') return null;
-  const player = intent.goal.player, current = observation.generals[player];
-  return current >= 0 ? current : observation.history.find((tile) => tile?.general && tile.owner === player)?.index ?? null;
+  return knownGeneralIndex(observation, intent.goal.player);
 }
 
 export function strategyReserve(observation: AgentObservation, intent: StrategyIntent | null, index: number): number {
@@ -81,10 +81,8 @@ export function checkStrategyRoutes(observation: AgentObservation, intent: Strat
 export function strategyGoalState(observation: AgentObservation, intent: StrategyIntent): { status: 'active' | 'blocked' | 'completed'; reason: string } {
   const target = strategyTarget(observation, intent), tile = target === null ? null : observation.tiles[target];
   if (intent.goal.kind === 'attack_general') {
-    const player = intent.goal.player;
-    const dead = observation.scores.some((score) => score !== null && typeof score === 'object'
-      && (score as Record<string, unknown>).i === player && (score as Record<string, unknown>).dead === true);
-    if (dead || tile?.owner === observation.playerIndex) return { status: 'completed', reason: 'target_player_defeated_or_general_captured' };
+    const lifecycle = playerLifecycle(observation, intent.goal.player);
+    if (lifecycle.status === 'eliminated') return { status: 'completed', reason: `target_player_eliminated_${lifecycle.basis}` };
     return target === null ? { status: 'blocked', reason: 'target_general_location_unknown' } : { status: 'active', reason: 'target_general_known' };
   }
   if (intent.goal.kind === 'capture_city') {

@@ -157,6 +157,39 @@ describe('Generals S2 intent selection', () => {
     expect(agent.getStrategyFeedback()?.status).toBe('following');
   });
 
+  it('continues an attack on an inactive player with a capturable general', () => {
+    const observation = board([10, 0, 30, 0, 1], [0, null, 0, null, 1]);
+    observation.generals[1] = 4;
+    observation.tiles[4].general = true;
+    observation.scores = [{ i: 1, total: 1, tiles: 1, dead: true }];
+    const strategy = intent({ kind: 'attack_general', player: 1 });
+    expect(strategyGoalState(observation, strategy)).toMatchObject({ status: 'active' });
+    const agent = new GeneralsAgent(options);
+    expect(agent.decide(observation, strategy)).toMatchObject({ kind: 'move', task: { kind: 'capture_general', target: 4 } });
+    expect(agent.getStrategyFeedback()?.status).toBe('following');
+  });
+
+  it('blocks an unknown inactive general and completes only confirmed elimination', () => {
+    const observation = board([10, 0, 30, 0, 1], [0, null, 0, null, 1]);
+    const strategy = intent({ kind: 'attack_general', player: 1 });
+    observation.scores = [{ i: 1, total: 1, tiles: 1, dead: true }];
+    expect(strategyGoalState(observation, strategy)).toEqual({ status: 'blocked', reason: 'target_general_location_unknown' });
+    observation.scores = [{ i: 1, total: 0, tiles: 0, dead: true }];
+    expect(strategyGoalState(observation, strategy)).toEqual({ status: 'completed', reason: 'target_player_eliminated_unknown' });
+    const agent = new GeneralsAgent(options);
+    agent.decide(observation, strategy);
+    expect(agent.getStrategyFeedback()).toMatchObject({ status: 'completed' });
+  });
+
+  it.each([{ owner: 0, basis: 'captured' }, { owner: null, basis: 'neutralized' }])('completes a confirmed $basis target', ({ owner, basis }) => {
+    const observation = board([10, 0, 30, 0, 1], [0, null, 0, null, 1]);
+    observation.history[4]!.general = true;
+    Object.assign(observation.tiles[4], { owner, terrain: owner ?? -1, general: false, city: true });
+    observation.scores = [{ i: 1, total: 0, tiles: 0, dead: true }];
+    expect(strategyGoalState(observation, intent({ kind: 'attack_general', player: 1 })))
+      .toEqual({ status: 'completed', reason: `target_player_eliminated_${basis}` });
+  });
+
   it('reports a tactical preemption for an immediately capturable general', () => {
     const observation = twoCities();
     observation.tiles[3].owner = 1;

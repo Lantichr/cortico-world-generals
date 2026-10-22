@@ -5,11 +5,12 @@ import { bottleneckScreen, projectOwnedRoute, SearchBudget, searchRoutes, search
 import { rankTasks, type TaskCandidate, type TaskCommitment } from './tasks.ts';
 import { analyzeGathering, searchGatheringRoutes } from './gather.ts';
 import { planDefense } from './defense.ts';
-import { assessMissionPlanTiming, createThreatTiming, findReturnRoute, projectVisibleRoute, type MissionTiming } from './timing.ts';
+import { assessImmediateGeneralCapture, assessMissionPlanTiming, createThreatTiming, findReturnRoute, projectVisibleRoute, type MissionTiming } from './timing.ts';
 import { evaluateTransport, evaluateTransportPlan, transportTargets } from './transport.ts';
 import { planGatheringTree, reprojectGatheringTree, type GatheringTreePlan } from './gather-tree.ts';
 import { activeStrategyIntent, checkStrategyMove, checkStrategyRoutes, checkStrategyTask, strategyFallback, strategyFeedback,
   strategyGatherTarget, strategyGoalState, strategyReserve, type StrategyFeedback } from './strategy.ts';
+import { canPlayerAct, resolvePlayerLifecycles } from './lifecycle.ts';
 
 /** A complete deterministic game policy; it has no Core, Persona or model dependency. */
 export class GeneralsAgent {
@@ -25,6 +26,7 @@ export class GeneralsAgent {
   private strategyRevision: number | null = null;
   private intentFeedback: StrategyFeedback | null = null;
   private completedStrategy: StrategyFeedback | null = null;
+  private lifecycleSignature = '';
 
   constructor(private readonly options: AgentOptions) {}
 
@@ -39,6 +41,7 @@ export class GeneralsAgent {
     this.strategyRevision = null;
     this.intentFeedback = null;
     this.completedStrategy = null;
+    this.lifecycleSignature = '';
   }
 
   getStrategyFeedback(): StrategyFeedback | null { return this.intentFeedback ? { ...this.intentFeedback } : null; }
@@ -46,6 +49,7 @@ export class GeneralsAgent {
   /** objectiveCompleted carries completion observed by the caller before this frame. */
   decide(observation: AgentObservation, inputIntent?: StrategyIntent | null, objectiveCompleted = false): AgentDecision {
     const startedAt = performance.now();
+    observation = { ...observation, playerLifecycle: resolvePlayerLifecycles(observation) };
     const intent = activeStrategyIntent(observation, inputIntent);
     const finish = (decision: AgentDecision): AgentDecision => {
       this.intentFeedback = intent ? this.completedStrategy?.revision === intent.revision ? { ...this.completedStrategy }
@@ -77,10 +81,17 @@ export class GeneralsAgent {
       this.strategyRevision = null;
       this.intentFeedback = null;
       this.completedStrategy = null;
+      this.lifecycleSignature = '';
     }
     if (observation.revision <= this.revision || observation.turn <= this.turn) return wait('duplicate_or_older_observation', false);
     this.revision = observation.revision;
     this.turn = observation.turn;
+    const lifecycleSignature = observation.playerLifecycle!.map((entry) => `${entry.player}:${entry.status}:${entry.basis}:${entry.generalIndex}`).join(';');
+    if (this.lifecycleSignature !== lifecycleSignature) {
+      this.commitment = null;
+      this.gatheringPlan = null;
+      this.lifecycleSignature = lifecycleSignature;
+    }
     if (this.strategyRevision !== (intent?.revision ?? null)) {
       this.commitment = null;
       this.gatheringPlan = null;
@@ -101,12 +112,20 @@ export class GeneralsAgent {
     const checkTask = (kind: TaskCandidate['kind'], routes: readonly Pick<Route, 'path'>[]) =>
       intent ? checkStrategyTask(observation, intent, kind, routes, completedIntent) : null;
     const budget = new SearchBudget(this.options.maxSearchNodes, this.options.decisionBudgetMs, startedAt);
-    const visibleForces = observation.tiles.filter((tile) => tile.owner !== null && tile.owner !== observation.playerIndex && tile.armies! >= 5)
+    const visibleForces = observation.tiles.filter((tile) => tile.owner !== null && tile.owner !== observation.playerIndex
+      && canPlayerAct(observation, tile.owner) && tile.armies! >= 5)
       .map((tile) => ({ index: tile.index, owner: tile.owner!, armies: tile.armies!, lastSeenTurn: observation.turn }));
     const unexplained = (force: HiddenArmyEstimate) => !visibleForces.some((current) => current.owner === force.owner
+      && Math.abs(observation.tiles[current.index].x - observation.tiles[force.index].x)
+        + Math.abs(observation.tiles[current.index].y - observation.tiles[force.index].y) <= observation.turn - force.lastSeenTurn
       && current.armies >= force.armies * 0.65);
-    this.hiddenForces = [...this.hiddenForces, ...this.previousForces.filter(unexplained)]
-      .filter((force) => observation.turn - force.lastSeenTurn <= 12 && unexplained(force))
+    const hidden = new Map<string, HiddenArmyEstimate>();
+    for (const force of [...this.hiddenForces, ...this.previousForces.filter(unexplained)]) {
+      const key = `${force.owner}:${force.index}:${force.lastSeenTurn}`;
+      if (!hidden.has(key) || hidden.get(key)!.armies < force.armies) hidden.set(key, force);
+    }
+    this.hiddenForces = [...hidden.values()]
+      .filter((force) => canPlayerAct(observation, force.owner) && observation.turn - force.lastSeenTurn <= 12 && unexplained(force))
       .sort((a, b) => b.armies - a.armies || b.lastSeenTurn - a.lastSeenTurn).slice(0, 64);
     this.previousForces = visibleForces;
     const analysis = analyzePosition(observation, this.hiddenForces);
@@ -144,7 +163,8 @@ export class GeneralsAgent {
     const assessMission = (missionRoutes: Route[]): MissionTiming => {
       const compatibleDefense = intent && defense && checkStrategyRoutes(observation, intent, [...missionRoutes, ...defenseRoutes])
         ? null : defense;
-      const assessment = assessMissionPlanTiming(observation, analysis, missionRoutes, budget, timing, compatibleDefense);
+      const assessment = missionRoutes.length === 1 && assessImmediateGeneralCapture(observation, analysis, missionRoutes[0])
+        || assessMissionPlanTiming(observation, analysis, missionRoutes, budget, timing, compatibleDefense);
       if (intent && assessment.status !== 'unsafe' && assessment.returnRoute) {
         const rejected = checkStrategyRoutes(observation, intent, [...missionRoutes, assessment.returnRoute]);
         if (rejected) return { ...assessment, status: 'unsafe', reason: `${assessment.reason};strategy_return_rejected:${rejected}` };
@@ -153,8 +173,9 @@ export class GeneralsAgent {
     };
     const constrainedFallback = (): TaskCandidate | null => {
       const fallback = intent ? strategyFallback(observation, analysis, intent, completedIntent, defense !== null) : oneStepFallback(observation, analysis);
+      if (fallback?.kind === 'capture_general' && assessMission([fallback.route]).status !== 'safe') return null;
       return intent && fallback && fallback.kind !== 'defend' && fallback.kind !== 'intercept'
-        && fallback.kind !== 'capture_general' && assessMission([fallback.route]).status === 'unsafe' ? null : fallback;
+        && assessMission([fallback.route]).status === 'unsafe' ? null : fallback;
     };
     const gathering = defense?.actionRequired || transport || continuation ? { anchor: null, recover: null }
       : analyzeGathering(observation, analysis, budget.fork(Math.floor(budget.remainingNodes / 8)));
@@ -227,13 +248,13 @@ export class GeneralsAgent {
     const rejectedMissions = new Set<TaskCandidate>();
     let nextStepPath: number[] | null = null;
     while (candidate && !candidate.reason.startsWith('budget_fallback_one_step')
-      && candidate.kind !== 'defend' && candidate.kind !== 'intercept'
-      && !(candidate.kind === 'capture_general' && candidate.route.path.length === 2)) {
+      && candidate.kind !== 'defend' && candidate.kind !== 'intercept') {
       const missionRoutes = tree && candidate.kind === 'gather' && candidate.route === tree.route ? tree.routes : [candidate.route];
       const assessment = assessMission(missionRoutes);
       if (assessment.status === 'unsafe') {
         if (assessment.deadlineTurn === null && missionRoutes.length === 1
-          && assessment.reason.startsWith('mission_waiting_garrison_exposed:')) {
+          && (assessment.reason.startsWith('mission_waiting_garrison_exposed:')
+            || assessment.reason.startsWith('mission_home_outflow_after_possible_attack;'))) {
           const ready = candidate.kind === 'gather' && candidates.find((alternative) =>
             ['expand', 'scout', 'capture_city'].includes(alternative.kind)
             && alternative.route.source === candidate!.route.source && alternative.route.path.length === 2
@@ -311,7 +332,7 @@ export class GeneralsAgent {
         candidate = candidates.find((alternative) => !rejectedMissions.has(alternative)
           && !checkStrategyRoutes(observation, intent, [alternative.route])
           && !checkTask(alternative.kind, [alternative.route])
-          && (alternative.kind === 'intercept' || alternative.kind === 'capture_general' && alternative.route.path.length === 2
+          && (alternative.kind === 'intercept'
             || assessMission([alternative.route]).status !== 'unsafe'))
           ?? constrainedFallback();
         tree = null;

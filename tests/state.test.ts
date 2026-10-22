@@ -2,6 +2,60 @@ import { describe, expect, it } from 'vitest';
 import { GeneralsState } from '../src/state.ts';
 
 describe('GeneralsState compact maps', () => {
+  it('keeps inactive generals and visible garrisons available without treating dead as capture', () => {
+    const state = new GeneralsState(0, { teams: [1, 2] });
+    const map = [3, 1, 10, 80, 20, 0, 1, 1];
+    state.update({ turn: 100, map_diff: [0, map.length, ...map], cities_diff: [0, 0], generals: [0, 1],
+      scores: [{ i: 1, total: 100, tiles: 2, dead: true }, { i: 0, total: 10, tiles: 1, dead: false }] });
+    expect(state.compactSnapshot().enemyGenerals).toBe('p1 G(1,0) 80@100 seen inactive');
+    expect(state.playerLifecycle()).toContainEqual({ player: 1, status: 'inactive', basis: 'score', observedTurn: 100, generalIndex: 1 });
+    expect(state.listArmies('enemy', 10)).toEqual({ enemy: [
+      { x: 1, y: 0, owner: 1, armies: 80, general: true, city: false },
+      { x: 2, y: 0, owner: 1, armies: 20, general: false, city: false },
+    ] });
+    expect(state.lastSeen(2)).toMatchObject({ owner: 1, armies: 20, lastSeenTurn: 100 });
+    const lifecycle = state.playerLifecycle();
+    lifecycle[1].status = 'eliminated';
+    expect(state.playerLifecycle()[1].status).toBe('inactive');
+  });
+
+  it.each([{ owner: 0, basis: 'captured' }, { owner: -1, basis: 'neutralized' }])('does not restore a $basis general after fog or a missing score', ({ owner, basis }) => {
+    const state = new GeneralsState(0, { teams: [1, 2] });
+    const frame = (turn: number, terrain: number[], generals: number[], width = 3) => {
+      const map = [width, 3 / width, 10, 80, 20, ...terrain];
+      state.update({ turn, map_diff: [0, map.length, ...map], cities_diff: [0, 1, 1], generals,
+        scores: turn === 102 ? [] : [{ i: 1, total: 100, tiles: 2, dead: turn === 101 }, { i: 0, total: 10, tiles: 1, dead: false }] });
+    };
+    frame(100, [0, 1, 1], [0, 1]);
+    frame(101, [0, owner, owner], [0, -1]);
+    expect(state.snapshot().enemyGenerals).toBe(`p1 eliminated:${basis}`);
+    expect(state.playerLifecycle()[1]).toMatchObject({ status: 'eliminated', basis, observedTurn: 101, generalIndex: 1 });
+    frame(102, [0, -3, -3], [0, -1]);
+    expect(state.compactSnapshot().enemyGenerals).toBe(`p1 eliminated:${basis}`);
+    expect(state.lastSeen(1)).toMatchObject({ owner: owner < 0 ? null : owner, city: true, general: false, lastSeenTurn: 101 });
+    expect(state.snapshot().playerLifecycle).toEqual(state.compactSnapshot().playerLifecycle);
+    frame(103, [0, -3, -3], [0, -1], 1);
+    expect(state.compactSnapshot().enemyGenerals).toBe('p1 G?');
+    expect(state.playerLifecycle()[1]).toMatchObject({ status: 'active', generalIndex: null });
+  });
+
+  it('discards the old general record when a swapped player remains explicitly active', () => {
+    const state = new GeneralsState(0, { teams: [1, 2] });
+    const frame = (turn: number, terrain: number[], generals: number[]) => {
+      const map = [3, 1, 10, 80, 20, ...terrain];
+      state.update({ turn, map_diff: [0, map.length, ...map], cities_diff: [0, 1, 1], generals,
+        scores: [{ i: 1, total: 20, tiles: 1, dead: false }] });
+    };
+    frame(100, [0, 1, 1], [0, 1]);
+    frame(101, [0, 0, 1], [0, -1]);
+    expect(state.compactSnapshot().enemyGenerals).toBe('p1 G?');
+    expect(state.playerLifecycle()[1]).toMatchObject({ status: 'active', generalIndex: null });
+    frame(102, [0, -3, 1], [0, -1]);
+    expect(state.compactSnapshot().enemyGenerals).toBe('p1 G?');
+    frame(103, [0, -3, 1], [0, 2]);
+    expect(state.compactSnapshot().enemyGenerals).toBe('p1 G(2,0) 20@103 seen');
+  });
+
   it('lists current nonfriendly general neighbors by ownership, including zero armies and diagonal unknowns', () => {
     const state = new GeneralsState(1, { teams: [1, 2, 2] });
     const armies = Array<number>(25).fill(0), terrain = Array<number>(25).fill(-1);

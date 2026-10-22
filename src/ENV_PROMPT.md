@@ -18,7 +18,7 @@ generals_agent_status 返回 control、gameId、controlEpoch、完整意图、�
 
 ## S2 战略意图
 
-以下适用于已确认 control=autonomous 的对局。先读 generals.strategy 或 generals_strategy_brief，比较王城安全、城市产能、主力位置、进攻方向和侦察需求，再按需查询局部事实。自动模式默认每10秒报告一次，实际由 agent.reportIntervalMs 决定；控制或意图变化、胜负、敌王城首次确认、己城数量变化和新增防守缺口会提前报告，待投递摘要合并为最新。完整地图和逐动作记录归档，不逐张投递到自动模式上下文。没有新判断时保留有效意图，不必每次报告都重发。
+以下适用于已确认 control=autonomous 的对局。先读 generals.strategy 或 generals_strategy_brief，比较王城安全、城市产能、主力位置、进攻方向和侦察需求，再按需查询局部事实。自动模式默认每10秒报告一次，实际由 agent.reportIntervalMs 决定；控制或意图变化、胜负、玩家停用或淘汰、敌王城首次确认、己城数量变化和新增防守缺口会提前报告，待投递摘要合并为最新。完整地图和逐动作记录归档，不逐张投递到自动模式上下文。没有新判断时保留有效意图，不必每次报告都重发。
 
 generals_strategy_brief 给出 gameId、controlEpoch、turn、playerIndex 和 intent.lastRevision，只保留约束数量。替换既有意图前，用 generals_agent_status 核对需要保留的目标、约束与偏好。用 generals_set_intent 提交完整意图：复制最新 gameId/controlEpoch，revision 严格大于 lastRevision，basedOnTurn 写实际依据 turn；expiresTurn 是排他上界，到达即失效。每次接受都会替换完整旧意图，未再写入的约束不保留；rationale 只记录解释，不执行自然语言命令。
 
@@ -69,7 +69,9 @@ generals_clear_intent({gameId,controlEpoch,revision}) 撤销目标和约束，re
 
 grid 顶行是 x、各行开头是 y，左上角为(0,0)。p0:12 表示玩家0的12兵，.:3 是中立3兵；G/C 为将军/城市，T20/T? 为隧道上限20/未知；# 是山，? 是迷雾，X 是雾中城市或山。~ 后缀是历史地形或建筑，如 ?~.、X~#、?~G、X~CT；前缀仍表示当前迷雾。raw 的 terrain 非负为所属玩家，-1/-2/-3/-4 分别为中立、山、迷雾、雾中障碍；tunnelLimits 的0为无隧道、正数为上限、-1为未知，generals 中 -1 表示位置未知。
 
-generals_inspect_tiles 的 current 给当前事实，迷雾中的归属、兵力、建筑为 null；lastSeen/lastSeenTurn 只给最后可见事实，从未见过为 null，不推算隐藏变化。历史缓存限于本局，换局、离开、断线或地图尺寸变化清空。enemyGenerals 的 G? 表示从未确认；G(12,5) 422@2362 last 表示旧坐标和旧兵，seen 才是当前确认；摘要 currentArmies=null 同样表示当前未确认。特殊模式或被占领可能改变王城记录的意义。
+generals_inspect_tiles 的 current 给当前事实，迷雾中的归属、兵力、建筑为 null；lastSeen/lastSeenTurn 只给最后可见事实，从未见过为 null，不推算隐藏变化。历史缓存限于本局，换局、离开、断线或地图尺寸变化清空。enemyGenerals 的 G? 表示从未确认；G(12,5) 422@2362 last 表示旧坐标和旧兵，seen 才是当前确认；摘要 currentArmies=null 同样表示当前未确认。
+
+raw/compact 的 playerLifecycle、摘要 facts.players 区分 active、inactive 和 eliminated。scores.dead=true 本身只说明停用；inactive 的静态驻军与王城仍可被夺，不计为主动来袭，attack_general 不因此完成。已知王城换属且没有明确 active 分数，或 dead=true 且土地为0，才记 eliminated，并停止追逐旧王城；basis=captured/neutralized 分别要求已见夺将/中立化，unknown 表示未确认原因。dead=false 明确表示仍 active：旧王城已换属时清除旧坐标，等待新王城位置，不能把同回合换将当成淘汰。王城坐标或 G 标记消失本身不证明淘汰。active 且 basis=unknown 表示未有停用证据，仍需考虑其可能行动。
 
 generalEnemyNeighbors 只列己王城周围八格当前可见的敌方或关系未知领地，未知玩家标 p3?，须先核对关系；排除自己、确认队友、中立、山与历史雾格。没有符合条件邻格或当前王城未确认时省略字段；字段不证明敌方实际视野或记忆。
 

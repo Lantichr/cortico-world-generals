@@ -66,8 +66,8 @@ describe('shared movement timing', () => {
     force(observation, 2, 1, 10);
     force(observation, 3, 1, 10);
     const assessment = assessMissionTiming(observation, analyzePosition(observation), route([0, 1], true), new SearchBudget(4000, 1000));
-    expect(assessment).toMatchObject({ status: 'safe', returnRoute: { source: 1, target: 0 } });
-    expect(assessment.reason).toContain('mission_and_return');
+    expect(assessment).toMatchObject({ status: 'unsafe', returnRoute: { source: 1, target: 0 } });
+    expect(assessment.reason).toContain('return_unmet_home_arrival');
   });
 
   it.each([0, 1, 20])('rejects a twenty-move late home arrival before spending a %i-node budget', (nodes) => {
@@ -292,6 +292,29 @@ describe('shared movement timing', () => {
     expect(assessment).toMatchObject({ status: 'unknown', deadlineTurn: null, returnRoute: null });
     expect(assessment.reason).toContain('mission_current_visible_projection_unavailable');
     expect(observation).toEqual(before);
+  });
+
+  it('does not spend a general garrison again after a possible earlier attack reduced it', () => {
+    const observation = board(4, 2, 0);
+    observation.turn = 101;
+    force(observation, 0, 0, 100);
+    force(observation, 1, 1, 41);
+    force(observation, 2, 0, 200);
+    Object.assign(observation.tiles[4], { owner: null, terrain: -1, armies: 70 });
+    const assessment = assessMissionPlanTiming(observation, analyzePosition(observation),
+      [route([2, 3]), route([0, 4])], new SearchBudget(4000, 1000));
+    expect(assessment).toMatchObject({ status: 'unsafe' });
+    expect(assessment.reason).toContain('mission_home_outflow_after_possible_attack');
+  });
+
+  it('checks the home deadline before the arrival turn produces new troops', () => {
+    const observation = board(3, 2, 0);
+    observation.turn = 49;
+    force(observation, 0, 0, 2);
+    force(observation, 1, 1, 4);
+    force(observation, 4, 0, 10);
+    const assessment = assessMissionTiming(observation, analyzePosition(observation), route([4, 5]), new SearchBudget(4000, 1000));
+    expect(assessment).toMatchObject({ status: 'unsafe', deadlineTurn: 50 });
   });
 
   it('checks field-army collisions with an enemy isolated from the general by known mountains', () => {

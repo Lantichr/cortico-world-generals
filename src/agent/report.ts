@@ -1,4 +1,5 @@
-import type { AgentObservation, AgentReport, AgentTaskKind, AgentTile, StrategyGoal } from './contracts.ts';
+import type { AgentObservation, AgentPlayerLifecycle, AgentReport, AgentTaskKind, AgentTile, StrategyGoal } from './contracts.ts';
+import { knownGeneralIndex, playerLifecycle, resolvePlayerLifecycles } from './lifecycle.ts';
 
 export const STRATEGY_BRIEF_LIMITS = { forces: 3, players: 8, reasonCodeLength: 64 } as const;
 
@@ -54,6 +55,7 @@ export interface StrategyBrief {
     basedOnTurn: number | null;
     home: (ArmyPosition & { owner: number | null }) | null;
     scores: PublicScore[];
+    players: Array<Pick<AgentPlayerLifecycle, 'player' | 'status' | 'basis'>>;
     ownCities: number | null;
     ownForces: ArmyPosition[];
     enemyForces: Array<ArmyPosition & { player: number }>;
@@ -92,39 +94,34 @@ function publicScores(observation: AgentObservation, previous?: StrategyBrief): 
   }).sort((a, b) => a.player - b.player).slice(0, STRATEGY_BRIEF_LIMITS.players);
 }
 
+function playerIds(observation: AgentObservation): number[] {
+  const players = new Set(observation.generals.keys());
+  for (const entry of observation.playerLifecycle ?? []) players.add(entry.player);
+  for (const seen of observation.history) if (seen?.general && seen.owner !== null) players.add(seen.owner);
+  for (const value of observation.scores) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const player = (value as Record<string, unknown>).i;
+    if (Number.isSafeInteger(player) && (player as number) >= 0) players.add(player as number);
+  }
+  return [...players].sort((a, b) => a - b).slice(0, STRATEGY_BRIEF_LIMITS.players);
+}
+
 function enemyGenerals(observation: AgentObservation): GeneralFact[] {
-  const known = new Map<number, { index: number; turn: number | null; armies: number | null }>();
-  for (const seen of observation.history) {
-    if (!seen?.general || seen.owner === null || seen.owner === observation.playerIndex) continue;
-    const current = observation.tiles[seen.index];
-    if (current.visible && (!current.general || current.owner !== seen.owner)) continue;
-    const previous = known.get(seen.owner);
-    if (!previous || previous.turn === null || seen.lastSeenTurn > previous.turn) {
-      known.set(seen.owner, { index: seen.index, turn: seen.lastSeenTurn, armies: seen.armies });
-    }
-  }
-  for (const [player, index] of observation.generals.entries()) {
-    if (player === observation.playerIndex || index < 0) continue;
-    const tile = observation.tiles[index];
-    if (tile.visible && (!tile.general || tile.owner !== player)) continue;
-    const previous = known.get(player);
-    if (previous?.index !== index) known.set(player, { index, turn: null, armies: null });
-  }
-  for (const tile of observation.tiles) {
-    if (tile.visible && tile.general && tile.owner !== null && tile.owner !== observation.playerIndex) {
-      known.set(tile.owner, { index: tile.index, turn: observation.turn, armies: tile.armies });
-    }
-  }
-  return [...known].sort(([a], [b]) => a - b).slice(0, STRATEGY_BRIEF_LIMITS.players).map(([player, known]) => {
-    const tile = observation.tiles[known.index], visible = tile.visible && tile.general && tile.owner === player;
-    return { player, knownPosition: { x: tile.x, y: tile.y }, currentArmies: visible ? tile.armies : null,
-      lastSeen: !visible && known.turn !== null ? { turn: known.turn, armies: known.armies } : null };
+  return playerIds(observation).flatMap((player) => {
+    if (player === observation.playerIndex) return [];
+    const index = knownGeneralIndex(observation, player);
+    if (index === null) return [];
+    const tile = observation.tiles[index], visible = tile.visible && tile.owner === player;
+    const seen = observation.history[index];
+    return [{ player, knownPosition: { x: tile.x, y: tile.y }, currentArmies: visible ? tile.armies : null,
+      lastSeen: !visible && seen?.owner === player ? { turn: seen.lastSeenTurn, armies: seen.armies } : null }];
   });
 }
 
 const assumptions = ['possible_enemy_paths', 'ignore_enemy_transit_resistance', 'no_enemy_reinforcement',
   'stationary_visible_garrisons', 'ignore_friendly_screen', 'same_turn_home_reinforcement_before_attack',
-  'recent_hidden_or_departed_army_may_approach_general'];
+  'recent_hidden_or_departed_army_may_approach_general', 'cumulative_visible_sequences',
+  'historical_sources_alternative', 'selected_enemy_orders', 'attack_before_production', 'no_unseen_enemy_reinforcement'];
 
 function policyEstimate(observation: AgentObservation | null, decision: NonNullable<AgentReport['lastDecision']>): PolicyEstimate {
   const parts = decision.reason.split(';');
@@ -159,7 +156,8 @@ function policyEstimate(observation: AgentObservation | null, decision: NonNulla
 
 /** previous is the last published brief, so score deltas cover the whole reporting interval. */
 export function createStrategyBrief(observation: AgentObservation | null, status: AgentReport, previous?: StrategyBrief): StrategyBrief {
-  const current = observation?.gameId === status.gameId ? observation : null;
+  const current = observation?.gameId === status.gameId
+    ? { ...observation, playerLifecycle: resolvePlayerLifecycles(observation) } : null;
   const decision = status.lastDecision?.gameId === status.gameId && status.lastDecision.controlEpoch === status.controlEpoch
     ? status.lastDecision : null;
   const active = status.intent.active;
@@ -178,7 +176,11 @@ export function createStrategyBrief(observation: AgentObservation | null, status
       lastRejection: rejection ? { revision: rejection.revision, reasonCode: code(rejection.reason)!, atTurn: rejection.atTurn } : null },
     currentTask: decision ? { kind: decision.task.kind, target: position(current, decision.task.target), basedOnTurn: decision.observedTurn } : null,
     facts: { basedOnTurn: current?.turn ?? null, home: home?.visible ? { ...army(home), owner: home.owner } : null,
-      scores: current ? publicScores(current, previous?.controlEpoch === status.controlEpoch ? previous : undefined) : [], ownCities: current
+      scores: current ? publicScores(current, previous?.controlEpoch === status.controlEpoch ? previous : undefined) : [],
+      players: current ? playerIds(current).map((player) => {
+        const lifecycle = playerLifecycle(current, player);
+        return { player, status: lifecycle.status, basis: lifecycle.basis };
+      }) : [], ownCities: current
         ? current.tiles.filter((tile) => tile.visible && tile.owner === current.playerIndex && tile.city).length : null,
       ownForces: visible.filter((tile) => tile.owner === current!.playerIndex).slice(0, STRATEGY_BRIEF_LIMITS.forces).map(army),
       enemyForces: visible.filter((tile) => tile.owner !== current!.playerIndex).slice(0, STRATEGY_BRIEF_LIMITS.forces)
@@ -202,6 +204,8 @@ export function significantStrategyChange(previous: StrategyBrief | null, next: 
     || previous.intent.lastRevision !== next.intent.lastRevision) return 'intent_changed';
   if (next.intent.lastRejection && (previous.intent.lastRejection?.revision !== next.intent.lastRejection.revision
     || previous.intent.lastRejection?.reasonCode !== next.intent.lastRejection.reasonCode)) return 'intent_rejected';
+  if (next.facts.players.some((player) => previous.facts.players.some((before) =>
+    before.player === player.player && (before.status !== player.status || before.basis !== player.basis)))) return 'player_lifecycle_changed';
   if (next.facts.enemyGenerals.some((general) => !previous.facts.enemyGenerals.some((known) => known.player === general.player))) {
     return 'enemy_general_discovered';
   }
