@@ -104,3 +104,5 @@ manual 是直接移动控制模式；初始化、重启、对局结束或 S1 错
 sent/attackIndex 只确认发送；moveProgress 的 lastSentAttackIndex、serverAttackIndex/serverAttackIndexTurn 分别是最后发送及最新报告的处理序号与回合，lastClearRequest 只记录清请求。处理序号不证明成功，旧队列可能仍执行。改计划前核对新地图、兵力与进度；phase=won/lost 后停止移动。
 
 FFA 中 S1 会选择进攻对象，也可能先发育侦察；S2 可用 attack_general 指定任意未淘汰对手。指定目标不排除其他对手的威胁与可行夺将机会。夺一人后继续本局，服务端确认胜负才结束。brief 的 focus 是策略选择；parallel_upper_bound 是不同玩家并行进攻的保守估计，不能当成已发生的联合行动。省略计数非零时，摘要没有列出全部玩家或兵团。
+
+FFA 的 strategicGeneralPlayers 表示距己方王城超过两步的可见敌将驻军；S1 将其作为战略风险，不据此强制回防，但仍核对其对行军路线的攻击。敌军离开王城、王城驻军进入两步内或近期隐藏兵团仍可触发防守。bounded_recovery 是防守搜索未能补足时的一步恢复 fallback：只尝试不从王城出兵、未增加可见敌军到达缺口的集兵或夺城，且核对局部战斗；它不表示完整防守已经成立。仅因前方路线受阻不等于需要撤回王城。

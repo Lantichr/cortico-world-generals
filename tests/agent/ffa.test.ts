@@ -1,13 +1,64 @@
 import { describe, expect, it } from 'vitest';
 import { analyzePosition } from '../../src/agent/analysis.ts';
 import { planDefense } from '../../src/agent/defense.ts';
-import { selectFfaFocus } from '../../src/agent/ffa.ts';
+import { assessFfaRecovery, selectFfaFocus } from '../../src/agent/ffa.ts';
+import { createThreatTiming, projectVisibleRoute } from '../../src/agent/timing.ts';
 import { SearchBudget } from '../../src/agent/search.ts';
 import { IntentController } from '../../src/intent.ts';
 import { FfaArena } from './ffa-arena.ts';
 import { GeneralsAgent } from '../../src/agent/agent.ts';
 
 describe('FFA policy and parallel defense', () => {
+  it('keeps distant general garrisons as strategic bounds while field armies and nearby generals enforce deadlines', () => {
+    const arena = new FfaArena(7, 3, [0, 6, 20]);
+    arena.cells[6].armies = 100;
+    Object.assign(arena.cells[13], { owner: 0, armies: 1 });
+    let analysis = analyzePosition(arena.observe(0));
+    expect(analysis.strategicHomeDemands).toContainEqual(expect.objectContaining({ tile: 6, required: 95 }));
+    expect(analysis.homeDemands.some((demand) => demand.sources.includes(6))).toBe(false);
+    Object.assign(arena.cells[5], { owner: 1, armies: 100 });
+    // Reveal the field army without changing its distance to home.
+    Object.assign(arena.cells[12], { owner: 0, armies: 1 });
+    analysis = analyzePosition(arena.observe(0));
+    expect(analysis.homeDemands.some((demand) => demand.sources.includes(5))).toBe(true);
+    const adjacent = new FfaArena(5, 1, [0, 2, 4]);
+    adjacent.cells[2].armies = 100;
+    Object.assign(adjacent.cells[1], { owner: 0, armies: 1 });
+    expect(analyzePosition(adjacent.observe(0)).homeDemands.some((demand) => demand.sources.includes(2))).toBe(true);
+  });
+
+  it('allows one locally safe recovery step with an existing home deficit but rejects home withdrawal and marching away', () => {
+    const arena = new FfaArena(7, 3, [0, 6, 20]);
+    arena.cells[0].armies = 10;
+    Object.assign(arena.cells[4], { owner: 1, armies: 100 });
+    Object.assign(arena.cells[14], { owner: 0, armies: 20 });
+    Object.assign(arena.cells[7], { owner: 0, armies: 3 });
+    Object.assign(arena.cells[3], { owner: 0, armies: 1 });
+    const view = arena.observe(0), analysis = analyzePosition(view), budget = new SearchBudget(4000, 1000);
+    const timing = createThreatTiming(view, analysis);
+    const route = projectVisibleRoute(view, [14, 7], false, budget)!.route;
+    expect(assessFfaRecovery(view, analysis, route, budget, timing)?.reason).toContain('bounded_recovery');
+    const away = projectVisibleRoute(view, [7, 14], false, budget)!.route;
+    expect(assessFfaRecovery(view, analysis, away, budget, timing)).toBeNull();
+    const outflow = projectVisibleRoute(view, [0, 1], false, budget)!.route;
+    expect(assessFfaRecovery(view, analysis, outflow, budget, timing)).toBeNull();
+    const decision = new GeneralsAgent({ decisionBudgetMs: 1000, maxSearchNodes: 4000 }).decide(view);
+    expect(decision.kind).toBe('move');
+    if (decision.kind === 'move') expect(decision.move.from).not.toBe(analysis.home);
+  });
+
+  it('does not recover a home screen into a city when the withdrawal increases an enemy arrival deficit', () => {
+    const arena = new FfaArena(7, 3, [0, 6, 20]);
+    arena.cells[0].armies = 10;
+    Object.assign(arena.cells[1], { owner: 0, armies: 120 });
+    arena.cells[7].mountain = true;
+    Object.assign(arena.cells[8], { owner: null, city: true, armies: 20 });
+    Object.assign(arena.cells[3], { owner: 0, armies: 1 });
+    Object.assign(arena.cells[4], { owner: 1, armies: 100 });
+    const view = arena.observe(0), analysis = analyzePosition(view), budget = new SearchBudget(4000, 1000);
+    const route = projectVisibleRoute(view, [1, 8], false, budget)!.route;
+    expect(assessFfaRecovery(view, analysis, route, budget, createThreatTiming(view, analysis))).toBeNull();
+  });
   it('plays without S2 through elimination and a final victory from a high player index', () => {
     const arena = new FfaArena(5, 3, [0, 4, 12]);
     arena.cells[12].armies = 200;

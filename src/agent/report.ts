@@ -19,6 +19,7 @@ interface GeneralFact {
   lastSeen: { turn: number; armies: number | null } | null;
 }
 interface PolicyEstimate {
+  strategicGeneralPlayers?: number[];
   basedOnTurn: number;
   reasonCode: string;
   homeDefense: {
@@ -124,7 +125,8 @@ function enemyGenerals(observation: AgentObservation): GeneralFact[] {
 const assumptions = ['possible_enemy_paths', 'ignore_enemy_transit_resistance', 'no_enemy_reinforcement',
   'stationary_visible_garrisons', 'ignore_friendly_screen', 'same_turn_home_reinforcement_before_attack',
   'recent_hidden_or_departed_army_may_approach_general', 'cumulative_visible_sequences',
-  'historical_sources_alternative', 'selected_enemy_orders', 'attack_before_production', 'no_unseen_enemy_reinforcement'];
+  'historical_sources_alternative', 'selected_enemy_orders', 'attack_before_production', 'no_unseen_enemy_reinforcement',
+  'distant_general_garrisons_not_home_deadlines'];
 
 function policyEstimate(observation: AgentObservation | null, decision: NonNullable<AgentReport['lastDecision']>): PolicyEstimate {
   const parts = decision.reason.split(';');
@@ -146,6 +148,7 @@ function policyEstimate(observation: AgentObservation | null, decision: NonNulla
   const declaredAssumptions = new Set(parts.flatMap((part) => part.startsWith('assumption:')
     ? [part.slice('assumption:'.length)] : [part]));
   return { basedOnTurn: decision.observedTurn, reasonCode: code(parts[0] === 'mission_recalled' ? parts[1] : decision.reason)!,
+    ...(fields.has('strategic_general_players') ? { strategicGeneralPlayers: fields.get('strategic_general_players')!.split(',').map(Number) } : {}),
     homeDefense: deadlineTurn === null ? null : {
       status: defenseStatus ?? (parts.includes('mission_recalled') ? 'recalled' : 'planned'), requiredArmies, projectedArmies,
       gapArmies: number('gap') ?? (requiredArmies !== null && projectedArmies !== null ? Math.max(0, requiredArmies - projectedArmies) : null),

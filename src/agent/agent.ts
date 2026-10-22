@@ -1,5 +1,5 @@
 import type { AgentDecision, AgentObservation, AgentOptions, StrategyIntent } from './contracts.ts';
-import { analyzePosition, production, type HiddenArmyEstimate } from './analysis.ts';
+import { analyzePosition, neighbors, production, type HiddenArmyEstimate } from './analysis.ts';
 import { oneStepFallback } from './fallback.ts';
 import { bottleneckScreen, projectOwnedRoute, SearchBudget, searchRoutes, searchRouteAlternatives, type Route } from './search.ts';
 import { rankTasks, type TaskCandidate, type TaskCommitment } from './tasks.ts';
@@ -11,7 +11,7 @@ import { planGatheringTree, reprojectGatheringTree, type GatheringTreePlan } fro
 import { activeStrategyIntent, checkStrategyMove, checkStrategyRoutes, checkStrategyTask, strategyFallback, strategyFeedback,
   strategyGatherTarget, strategyGoalState, strategyReserve, type StrategyFeedback } from './strategy.ts';
 import { canPlayerAct, resolvePlayerLifecycles } from './lifecycle.ts';
-import { selectFfaFocus, type FfaFocus } from './ffa.ts';
+import { assessFfaRecovery, selectFfaFocus, type FfaFocus } from './ffa.ts';
 
 /** A complete deterministic game policy; it has no Core, Persona or model dependency. */
 export class GeneralsAgent {
@@ -172,8 +172,12 @@ export class GeneralsAgent {
     const assessMission = (missionRoutes: Route[]): MissionTiming => {
       const compatibleDefense = intent && defense && checkStrategyRoutes(observation, intent, [...missionRoutes, ...defenseRoutes])
         ? null : defense;
-      const assessment = missionRoutes.length === 1 && assessImmediateGeneralCapture(observation, analysis, missionRoutes[0])
+      let assessment = missionRoutes.length === 1 && assessImmediateGeneralCapture(observation, analysis, missionRoutes[0])
         || assessMissionPlanTiming(observation, analysis, missionRoutes, budget, timing, compatibleDefense);
+      if (observation.generals.length > 2 && assessment.status === 'unsafe'
+        && defense && defense.status !== 'sufficient' && !defense.actionRequired && missionRoutes.length === 1) {
+        assessment = assessFfaRecovery(observation, analysis, missionRoutes[0], budget, timing) ?? assessment;
+      }
       if (intent && assessment.status !== 'unsafe' && assessment.returnRoute) {
         const rejected = checkStrategyRoutes(observation, intent, [...missionRoutes, assessment.returnRoute]);
         if (rejected) return { ...assessment, status: 'unsafe', reason: `${assessment.reason};strategy_return_rejected:${rejected}` };
@@ -186,6 +190,26 @@ export class GeneralsAgent {
       return intent && fallback && fallback.kind !== 'defend' && fallback.kind !== 'intercept'
         && assessMission([fallback.route]).status === 'unsafe' ? null : fallback;
     };
+    let recovery: TaskCandidate | null = null;
+    if (observation.generals.length > 2 && defense && defense.status !== 'sufficient' && !defense.actionRequired) {
+      const recoveryBudget = budget.fork(Math.floor(budget.remainingNodes / 5));
+      const own = [...analysis.own].filter((tile) => tile.index !== analysis.home && tile.armies! > 2)
+        .sort((a, b) => b.armies! - a.armies! || a.index - b.index);
+      for (const source of own) {
+        for (const target of neighbors(source.index, observation.width, observation.height)) {
+          const projected = projectVisibleRoute(observation, [source.index, target], false, recoveryBudget);
+          if (!projected || checkTask(observation.tiles[target].owner === observation.playerIndex ? 'gather' : 'capture_city', [projected.route])) continue;
+          if (intent && (checkStrategyRoutes(observation, intent, [projected.route])
+            || checkStrategyMove(observation, intent, { from: source.index, to: target, half: false }))) continue;
+          const assessment = assessFfaRecovery(observation, analysis, projected.route, recoveryBudget, timing);
+          if (!assessment) continue;
+          recovery = { route: projected.route, kind: observation.tiles[target].owner === observation.playerIndex ? 'gather' : 'capture_city',
+            score: 20, reason: assessment.reason };
+          break;
+        }
+        if (recovery || recoveryBudget.exhausted) break;
+      }
+    }
     const gathering = defense?.actionRequired || transport || continuation ? { anchor: null, recover: null }
       : analyzeGathering(observation, analysis, budget.fork(Math.floor(budget.remainingNodes / 8)));
     const sources = [...analysis.own].filter((tile) => tile.armies! > 1)
@@ -261,7 +285,7 @@ export class GeneralsAgent {
       const missionRoutes = tree && candidate.kind === 'gather' && candidate.route === tree.route ? tree.routes : [candidate.route];
       const assessment = assessMission(missionRoutes);
       if (assessment.status === 'unsafe') {
-        if (assessment.deadlineTurn === null && missionRoutes.length === 1
+        if ((assessment.deadlineTurn === null || observation.generals.length > 2) && missionRoutes.length === 1
           && (assessment.reason.startsWith('mission_waiting_garrison_exposed:')
             || assessment.reason.startsWith('mission_home_outflow_after_possible_attack;'))) {
           const ready = candidate.kind === 'gather' && candidates.find((alternative) =>
@@ -308,7 +332,8 @@ export class GeneralsAgent {
         if (candidate.kind === 'gather' || candidate === continuation) {
           this.commitment = null; this.gatheringPlan = null; tree = null; continuation = null;
         }
-        if (assessment.deadlineTurn === null) {
+        if (assessment.deadlineTurn === null || observation.generals.length > 2
+          && /^mission_(waiting_source_exposed|waiting_garrison_exposed|route_collision):/.test(assessment.reason)) {
           candidate = candidates.find((alternative) => !rejectedMissions.has(alternative)) ?? null;
           continue;
         }
@@ -351,10 +376,16 @@ export class GeneralsAgent {
         if (candidate) candidate.reason += `;rejected_plan:${rejected}`;
       }
     }
+    if ((!candidate || candidate.score < 0) && recovery) {
+      candidate = recovery; tree = null; nextStepPath = null;
+    }
     const search = { nodes: budget.nodes, elapsedMs: performance.now() - startedAt,
       fallback: candidate?.reason.startsWith('budget_fallback_one_step') ?? false };
-    const historyGuard = analysis.possibleThreats.length
-      ? `;history_guard:${analysis.possibleThreats.slice(0, 4).map((threat) => `${threat.tile}@${threat.lastSeenTurn}`).join(',')};assumption:recent_hidden_or_departed_army_may_approach_general` : '';
+    const strategicGuard = analysis.strategicHomeDemands?.length
+      ? `;strategic_general_players:${[...new Set(analysis.strategicHomeDemands.map((demand) => demand.owner))].join(',')}`
+        + ';assumption:distant_general_garrisons_not_home_deadlines' : '';
+    const historyGuard = strategicGuard + (analysis.possibleThreats.length
+      ? `;history_guard:${analysis.possibleThreats.slice(0, 4).map((threat) => `${threat.tile}@${threat.lastSeenTurn}`).join(',')};assumption:recent_hidden_or_departed_army_may_approach_general` : '');
     if ((!candidate || candidate.score < 0) && gatherTarget !== null && observation.tiles[gatherTarget].armies! > 1
       && !defense) return { ...wait('strategy_gather_target_held;no_safe_reinforcement_selected' + historyGuard), search };
     if (!candidate || candidate.score < 0) return { ...wait((defense?.reason

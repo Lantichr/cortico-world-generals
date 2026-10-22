@@ -27,6 +27,14 @@ function status(): AgentReport {
 }
 
 describe('Generals strategy brief', () => {
+  it('labels distant general garrisons as a policy assumption separately from home defense', () => {
+    const report = status();
+    report.lastDecision = decision('visible_general;strategic_general_players:1,2;assumption:distant_general_garrisons_not_home_deadlines');
+    const brief = createStrategyBrief(observation(), report);
+    expect(brief.estimates?.strategicGeneralPlayers).toEqual([1, 2]);
+    expect(brief.estimates?.assumptions).toContain('distant_general_garrisons_not_home_deadlines');
+    expect(brief.estimates?.homeDefense).toBeNull();
+  });
   it('reports parallel pressure as a player set without assigning a single army position', () => {
     const report = status();
     report.lastDecision = decision('defense_partial;target:80;projected:40;gap:40;deadline_turn:106;enemy_player:null;enemy_players:1,2');

@@ -31,6 +31,7 @@ export interface PositionAnalysis {
   possibleThreats: Array<{ tile: number; owner: number; lastSeenTurn: number; lastSeenArmies: number; minimumDistance: number; reserve: number;
     basis: 'last_seen_fog' | 'departed_visible_tile' }>;
   homeDemands: HomeDemand[];
+  strategicHomeDemands?: HomeDemand[];
   homeReserve: number;
 }
 
@@ -144,14 +145,21 @@ export function analyzePosition(observation: AgentObservation, departed: HiddenA
     return { tile: seen.index, owner: seen.owner, lastSeenTurn: seen.lastSeenTurn, lastSeenArmies: seen.armies, minimumDistance, basis: seen.basis,
       reserve: Math.max(1, seen.armies - minimumDistance + 1 - production(homeTile, observation.turn, observation.turn + minimumDistance - 1)) };
   });
+  const ffa = players.size > 2;
+  // A distant general garrison has not committed to a march. Keep its bound for strategy,
+  // while field armies and adjacent general attacks retain deadline enforcement.
+  const fieldThreats = threats.filter((threat) => !ffa || !observation.tiles[threat.tile].general || threat.distance <= 2);
+  const strategicHomeDemands: HomeDemand[] = threats.filter((threat) => !fieldThreats.includes(threat))
+    .map((threat) => ({ tile: threat.tile, owner: threat.owner, steps: threat.distance,
+      required: Math.max(0, threat.armies - threat.distance) + 1, basis: 'visible', sources: [threat.tile], scenario: 'single' }));
   const homeDemands: HomeDemand[] = [
-    ...threats.map((threat) => ({ tile: threat.tile, owner: threat.owner, steps: threat.distance,
+    ...fieldThreats.map((threat) => ({ tile: threat.tile, owner: threat.owner, steps: threat.distance,
       required: Math.max(0, threat.armies - threat.distance) + 1, basis: 'visible' as const,
       sources: [threat.tile], scenario: 'single' as const })),
     ...possibleThreats.map((threat) => ({ tile: threat.tile, owner: threat.owner, steps: threat.minimumDistance,
       required: Math.max(0, threat.lastSeenArmies - threat.minimumDistance) + 1, basis: 'history' as const,
       sources: [threat.tile], scenario: 'single' as const, lastSeenTurn: threat.lastSeenTurn })),
-    ...visibleAssaults(observation, home, threats, distance),
+    ...visibleAssaults(observation, home, fieldThreats, distance),
   ].sort((a, b) => a.steps - b.steps || b.required - a.required || a.tile - b.tile);
   homeDemands.push(...parallelHomeDemands(homeDemands));
   homeDemands.sort((a, b) => a.steps - b.steps || b.required - a.required || a.tile - b.tile);
@@ -161,7 +169,7 @@ export function analyzePosition(observation: AgentObservation, departed: HiddenA
         - production(homeTile, observation.turn, observation.turn + demand.steps - 1)))),
     ...homeDemands.filter((demand) => demand.sources.length > 1).map((demand) => Math.max(1, demand.required
       - production(homeTile, observation.turn, observation.turn + demand.steps - 1)))) : 1;
-  return { home, own, enemies, enemyGenerals, threats, possibleThreats, homeDemands, homeReserve };
+  return { home, own, enemies, enemyGenerals, threats, possibleThreats, homeDemands, strategicHomeDemands, homeReserve };
 }
 
 /** Each player's largest prefix is an alternative bound; different players can act concurrently. */

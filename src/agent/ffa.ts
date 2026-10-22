@@ -1,8 +1,33 @@
 import type { AgentObservation, StrategyIntent } from './contracts.ts';
-import { distances, type PositionAnalysis } from './analysis.ts';
+import { analyzePosition, distances, type PositionAnalysis } from './analysis.ts';
 import { canPlayerAct, knownGeneralIndex, resolvePlayerLifecycles } from './lifecycle.ts';
+import type { Route, SearchBudget } from './search.ts';
+import { assessMissionPlanTiming, projectVisibleRoute, type MissionTiming, type ThreatTiming } from './timing.ts';
 
 export interface FfaFocus { player: number | null; reason: string }
+
+/** One-step recovery preserves visible home-arrival deficits and still checks local combat exposure.
+ * It does not establish complete home coverage or safety against unseen reinforcement.
+ */
+export function assessFfaRecovery(observation: AgentObservation, analysis: PositionAnalysis, route: Route,
+  budget: SearchBudget, timing: ThreatTiming): MissionTiming | null {
+  if (route.path.length !== 2 || route.source === analysis.home) return null;
+  const from = observation.tiles[route.source], to = observation.tiles[route.target], home = observation.tiles[analysis.home];
+  const distance = (tile: typeof from) => Math.abs(tile.x - home.x) + Math.abs(tile.y - home.y);
+  if (!(to.owner === observation.playerIndex && distance(to) < distance(from)
+    || to.city && to.owner !== observation.playerIndex)) return null;
+  const projected = projectVisibleRoute(observation, route.path, route.half, budget);
+  if (!projected) return null;
+  const after = analyzePosition(projected.observation);
+  const noWorse = after.threats.every((threat) => {
+    const before = analysis.threats.find((entry) => entry.tile === threat.tile && entry.owner === threat.owner);
+    return before && threat.projectedArrivalArmies <= before.projectedArrivalArmies;
+  });
+  if (!noWorse) return null;
+  const local = assessMissionPlanTiming(observation, { ...analysis, homeDemands: [] }, [route], budget, timing);
+  return local.status === 'safe' ? { ...local,
+    reason: `bounded_recovery;existing_home_gap_not_worsened;one_step_only;${local.reason}` } : null;
+}
 
 /** Deterministic FFA preferences are policy estimates; a focus never suppresses other players' threats. */
 export function selectFfaFocus(observation: AgentObservation, analysis: PositionAnalysis,
