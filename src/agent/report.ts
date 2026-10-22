@@ -1,7 +1,7 @@
 import type { AgentObservation, AgentPlayerLifecycle, AgentReport, AgentTaskKind, AgentTile, StrategyGoal } from './contracts.ts';
 import { knownGeneralIndex, playerLifecycle, resolvePlayerLifecycles } from './lifecycle.ts';
 
-export const STRATEGY_BRIEF_LIMITS = { forces: 3, players: 8, reasonCodeLength: 64 } as const;
+export const STRATEGY_BRIEF_LIMITS = { forces: 3, players: 8, enemyPlayers: 6, reasonCodeLength: 64 } as const;
 
 interface Position { x: number; y: number }
 interface ArmyPosition extends Position { armies: number | null }
@@ -29,12 +29,13 @@ interface PolicyEstimate {
     deadlineTurn: number;
     slackTurns: number | null;
   } | null;
-  threat: (Position & { basis: 'visible' | 'history' | 'possible_path'; lastSeenTurn: number | null }) | null;
+  threat: (Position & { player: number | null; basis: 'visible' | 'history' | 'possible_path'; lastSeenTurn: number | null }) | { players: number[]; basis: 'parallel_upper_bound' } | null;
   assumptions: string[];
 }
 
 /** Facts retain their observation turn; policy estimates and processing feedback have independent dates. */
 export interface StrategyBrief {
+  focus?: { player: number | null; reason: string };
   gameId: string | null;
   controlEpoch: number;
   turn: number | null;
@@ -60,6 +61,8 @@ export interface StrategyBrief {
     ownForces: ArmyPosition[];
     enemyForces: Array<ArmyPosition & { player: number }>;
     enemyGenerals: GeneralFact[];
+    playerCounts?: { active: number; inactive: number; eliminated: number };
+    omitted?: { players: number; enemyForces: number; enemyGenerals: number };
   };
   estimates: PolicyEstimate | null;
   recentOutcome: {
@@ -91,7 +94,7 @@ function publicScores(observation: AgentObservation, previous?: StrategyBrief): 
     const before = sameBaseline ? previous.facts.scores.find((entry) => entry.player === player) : null;
     return [{ player, total, tiles, dead: typeof score.dead === 'boolean' ? score.dead : null,
       delta: before ? { sinceTurn: previous!.facts.basedOnTurn!, total: total - before.total, tiles: tiles - before.tiles } : null }];
-  }).sort((a, b) => a.player - b.player).slice(0, STRATEGY_BRIEF_LIMITS.players);
+  }).sort((a, b) => a.player - b.player);
 }
 
 function playerIds(observation: AgentObservation): number[] {
@@ -103,7 +106,7 @@ function playerIds(observation: AgentObservation): number[] {
     const player = (value as Record<string, unknown>).i;
     if (Number.isSafeInteger(player) && (player as number) >= 0) players.add(player as number);
   }
-  return [...players].sort((a, b) => a - b).slice(0, STRATEGY_BRIEF_LIMITS.players);
+  return [...players].sort((a, b) => a - b);
 }
 
 function enemyGenerals(observation: AgentObservation): GeneralFact[] {
@@ -148,7 +151,9 @@ function policyEstimate(observation: AgentObservation | null, decision: NonNulla
       gapArmies: number('gap') ?? (requiredArmies !== null && projectedArmies !== null ? Math.max(0, requiredArmies - projectedArmies) : null),
       deadlineTurn, slackTurns: number('slack'),
     },
-    threat: threatPosition ? { ...threatPosition, basis: history ? 'history' : fields.has('visible_enemy') ? 'visible' : 'possible_path',
+    threat: fields.has('enemy_players') ? { players: fields.get('enemy_players')!.split(',').map(Number), basis: 'parallel_upper_bound' }
+      : threatPosition ? { ...threatPosition, player: number('enemy_player') ?? observation?.tiles[enemyIndex!]?.owner
+      ?? observation?.history[enemyIndex!]?.owner ?? null, basis: history ? 'history' : fields.has('visible_enemy') ? 'visible' : 'possible_path',
       lastSeenTurn: history ? Number(history[2]) : null } : null,
     assumptions: assumptions.filter((assumption) => declaredAssumptions.has(assumption)),
   };
@@ -166,7 +171,28 @@ export function createStrategyBrief(observation: AgentObservation | null, status
   const visible = current?.tiles.filter((tile) => tile.visible && tile.armies !== null && tile.owner !== null)
     .sort((a, b) => b.armies! - a.armies! || a.index - b.index) ?? [];
   const home = current?.tiles[current.generals[current.playerIndex]];
-  return { gameId: status.gameId, controlEpoch: status.controlEpoch, turn: current?.turn ?? status.observedTurn,
+  const ids = current ? playerIds(current) : [];
+  const ffa = ids.length > 2;
+  const requested = active?.goal.kind === 'attack_general' ? active.goal.player : null;
+  const priority = (player: number) => player === current?.playerIndex ? -Infinity
+    : player === requested ? -1e6 : player === decision?.focus?.player ? -1e5
+      : Math.min(Infinity, ...visible.filter((tile) => tile.owner === player).map((tile) => home
+        ? (Math.abs(tile.x - home.x) + Math.abs(tile.y - home.y)) / Math.max(1, tile.armies!) : Infinity));
+  const selected = (ffa ? [...ids].sort((a, b) => priority(a) - priority(b) || a - b) : ids).slice(0, STRATEGY_BRIEF_LIMITS.players);
+  const ranks = new Map(selected.map((player, rank) => [player, rank]));
+  const scores = current ? publicScores(current, previous?.controlEpoch === status.controlEpoch ? previous : undefined)
+    .filter((score) => ranks.has(score.player)).sort((a, b) => ranks.get(a.player)! - ranks.get(b.player)!) : [];
+  const allEnemyForces = visible.filter((tile) => tile.owner !== current!.playerIndex);
+  const enemyForces = ffa ? [...new Set(allEnemyForces.map((tile) => tile.owner!))].sort((a, b) => priority(a) - priority(b) || a - b)
+    .slice(0, STRATEGY_BRIEF_LIMITS.enemyPlayers).map((player) => allEnemyForces.filter((tile) => tile.owner === player)
+      .sort((a, b) => (home ? (Math.abs(a.x - home.x) + Math.abs(a.y - home.y) + 1) / Math.max(1, a.armies!)
+        - (Math.abs(b.x - home.x) + Math.abs(b.y - home.y) + 1) / Math.max(1, b.armies!) : 0) || b.armies! - a.armies!)[0])
+    : allEnemyForces.slice(0, STRATEGY_BRIEF_LIMITS.forces);
+  const allGenerals = current ? enemyGenerals(current) : [];
+  const generals = allGenerals.filter((general) => ranks.has(general.player)).sort((a, b) => ranks.get(a.player)! - ranks.get(b.player)!);
+  const lifecycle = current?.playerLifecycle ?? [];
+  return { ...(ffa && decision?.focus ? { focus: { ...decision.focus } } : {}),
+    gameId: status.gameId, controlEpoch: status.controlEpoch, turn: current?.turn ?? status.observedTurn,
     playerIndex: current?.playerIndex ?? null,
     phase: status.phase, control: status.control, operatorPaused: status.operatorPaused, operatorPauseLinked: status.operatorPauseLinked,
     intent: { status: status.intent.status, reasonCode: code(status.intent.reason),
@@ -176,16 +202,21 @@ export function createStrategyBrief(observation: AgentObservation | null, status
       lastRejection: rejection ? { revision: rejection.revision, reasonCode: code(rejection.reason)!, atTurn: rejection.atTurn } : null },
     currentTask: decision ? { kind: decision.task.kind, target: position(current, decision.task.target), basedOnTurn: decision.observedTurn } : null,
     facts: { basedOnTurn: current?.turn ?? null, home: home?.visible ? { ...army(home), owner: home.owner } : null,
-      scores: current ? publicScores(current, previous?.controlEpoch === status.controlEpoch ? previous : undefined) : [],
-      players: current ? playerIds(current).map((player) => {
+      scores,
+      players: current ? selected.map((player) => {
         const lifecycle = playerLifecycle(current, player);
         return { player, status: lifecycle.status, basis: lifecycle.basis };
       }) : [], ownCities: current
         ? current.tiles.filter((tile) => tile.visible && tile.owner === current.playerIndex && tile.city).length : null,
       ownForces: visible.filter((tile) => tile.owner === current!.playerIndex).slice(0, STRATEGY_BRIEF_LIMITS.forces).map(army),
-      enemyForces: visible.filter((tile) => tile.owner !== current!.playerIndex).slice(0, STRATEGY_BRIEF_LIMITS.forces)
+      enemyForces: enemyForces
         .map((tile) => ({ ...army(tile), player: tile.owner! })),
-      enemyGenerals: current ? enemyGenerals(current) : [] },
+      enemyGenerals: generals,
+      ...(ffa ? { playerCounts: { active: lifecycle.filter((entry) => entry.status === 'active').length,
+        inactive: lifecycle.filter((entry) => entry.status === 'inactive').length,
+        eliminated: lifecycle.filter((entry) => entry.status === 'eliminated').length },
+      omitted: { players: ids.length - selected.length, enemyForces: allEnemyForces.length - enemyForces.length,
+        enemyGenerals: allGenerals.length - generals.length } } : {}) },
     estimates: decision ? policyEstimate(current, decision) : null,
     recentOutcome: feedback ? { actionId: feedback.action.actionId, controlEpoch: feedback.action.controlEpoch,
       actionTurn: feedback.action.observedTurn, observedTurn: feedback.observedTurn, outcome: feedback.outcome } : null };
@@ -202,6 +233,8 @@ export function significantStrategyChange(previous: StrategyBrief | null, next: 
   if (previous.facts.basedOnTurn === null && next.facts.basedOnTurn !== null) return 'first_observation';
   if (previous.intent.status !== next.intent.status || previous.intent.active?.revision !== next.intent.active?.revision
     || previous.intent.lastRevision !== next.intent.lastRevision) return 'intent_changed';
+  if (previous.focus?.player !== next.focus?.player) return 'attack_focus_changed';
+  if (JSON.stringify(previous.facts.playerCounts) !== JSON.stringify(next.facts.playerCounts)) return 'player_lifecycle_changed';
   if (next.intent.lastRejection && (previous.intent.lastRejection?.revision !== next.intent.lastRejection.revision
     || previous.intent.lastRejection?.reasonCode !== next.intent.lastRejection.reasonCode)) return 'intent_rejected';
   if (next.facts.players.some((player) => previous.facts.players.some((before) =>

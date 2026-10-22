@@ -5,6 +5,7 @@ import { analyzeGathering, type GatheringAnalysis } from './gather.ts';
 import { evaluateTransport, transportTargets, type TransportObjectives } from './transport.ts';
 import { createThreatTiming, type ThreatTiming } from './timing.ts';
 import { checkStrategyRoutes, checkStrategyTask, scoreStrategyCandidate, strategyCandidates } from './strategy.ts';
+import { scoreFfaTarget, type FfaFocus } from './ffa.ts';
 
 export interface TaskCandidate {
   route: Route;
@@ -20,7 +21,7 @@ export function rankTasks(observation: AgentObservation, analysis: PositionAnaly
   commitment: TaskCommitment | null, budget: SearchBudget,
   gathering: GatheringAnalysis = analyzeGathering(observation, analysis, budget), urgentDefense?: boolean,
   timing: ThreatTiming = createThreatTiming(observation, analysis), selectedTransportTargets?: number[], intent?: StrategyIntent | null,
-  completedIntent = false): TaskCandidate[] {
+  completedIntent = false, focus: FfaFocus | null = null): TaskCandidate[] {
   const homeDistance = distances(observation, analysis.home, true);
   const home = observation.tiles[analysis.home];
   const urgent = urgentDefense === false ? []
@@ -99,6 +100,7 @@ export function rankTasks(observation: AgentObservation, analysis: PositionAnaly
     }
     if (urgent.length && kind !== 'intercept' && kind !== 'capture_general') score -= 200;
     if (kind !== 'capture_general' && route.armies <= 1) score -= 12;
+    score += scoreFfaTarget(observation, focus, route.target, kind, moves);
     candidates.push({ route, kind, score, reason });
   }
   if (intent) {

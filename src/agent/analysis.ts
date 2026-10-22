@@ -12,12 +12,13 @@ export interface Threat {
 
 export interface HomeDemand {
   tile: number;
-  owner: number;
+  owner: number | null;
+  players?: number[];
   steps: number;
   required: number;
   basis: 'visible' | 'history';
   sources: number[];
-  scenario: 'single' | 'nearest_first' | 'largest_first';
+  scenario: 'single' | 'nearest_first' | 'largest_first' | 'parallel_players';
   lastSeenTurn?: number;
 }
 
@@ -152,6 +153,8 @@ export function analyzePosition(observation: AgentObservation, departed: HiddenA
       sources: [threat.tile], scenario: 'single' as const, lastSeenTurn: threat.lastSeenTurn })),
     ...visibleAssaults(observation, home, threats, distance),
   ].sort((a, b) => a.steps - b.steps || b.required - a.required || a.tile - b.tile);
+  homeDemands.push(...parallelHomeDemands(homeDemands));
+  homeDemands.sort((a, b) => a.steps - b.steps || b.required - a.required || a.tile - b.tile);
   const homeReserve = homeTile ? Math.max(1, ...possibleThreats.map((threat) => threat.reserve),
     ...threats.map((threat) => Math.max(1, ...homeDemands.filter((demand) => demand.sources.length === 1
       && demand.sources[0] === threat.tile).map((demand) => demand.required - Math.max(0, losses[threat.tile] - threat.distance)
@@ -159,6 +162,29 @@ export function analyzePosition(observation: AgentObservation, departed: HiddenA
     ...homeDemands.filter((demand) => demand.sources.length > 1).map((demand) => Math.max(1, demand.required
       - production(homeTile, observation.turn, observation.turn + demand.steps - 1)))) : 1;
   return { home, own, enemies, enemyGenerals, threats, possibleThreats, homeDemands, homeReserve };
+}
+
+/** Each player's largest prefix is an alternative bound; different players can act concurrently. */
+function parallelHomeDemands(demands: HomeDemand[]): HomeDemand[] {
+  const players = [...new Set(demands.flatMap((demand) => demand.owner === null ? [] : [demand.owner]))];
+  if (players.length < 2) return [];
+  const ordered = [...demands].sort((a, b) => a.steps - b.steps);
+  const best = new Map<number, HomeDemand>();
+  let cursor = 0;
+  return [...new Set(ordered.map((demand) => demand.steps))].flatMap((steps) => {
+    while (cursor < ordered.length && ordered[cursor].steps <= steps) {
+      const demand = ordered[cursor++];
+      if (demand.owner === null) continue;
+      const previous = best.get(demand.owner);
+      if (!previous || demand.required > previous.required) best.set(demand.owner, demand);
+    }
+    const prefixes = players.flatMap((player) => best.has(player) ? [best.get(player)!] : []);
+    if (prefixes.length < 2) return [];
+    return [{ tile: prefixes[0].tile, owner: null, players: prefixes.map((prefix) => prefix.owner!), steps,
+      required: prefixes.reduce((sum, prefix) => sum + Math.max(0, prefix.required - 1), 1),
+      basis: prefixes.some((prefix) => prefix.basis === 'history') ? 'history' as const : 'visible' as const,
+      sources: [...new Set(prefixes.flatMap((prefix) => prefix.sources))], scenario: 'parallel_players' as const }];
+  });
 }
 
 /** Two selected shortest-path assaults share each player's clock and consume merged sources once.

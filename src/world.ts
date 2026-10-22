@@ -209,7 +209,7 @@ export class GeneralsWorld implements World {
         const state = this.activeMap();
         return { ...planGather(state, parseGatherOptions(state, args)), moveProgress: this.moveProgress() };
       }),
-      tool('start_agent', 'Delegate one supported standard or City-State 1v1 game to the autonomous S1 agent. S1 chooses goals and plays without model replies. Joins the supplied room when currently unseated; forceStart explicitly requests a start vote after lobby admission. Existing move queues receive a clear request before autonomous control. Manual movement is blocked until stop_agent. Does not register usernames or start another game after a result.', ['act'], {
+      tool('start_agent', 'Delegate one supported standard or City-State 1v1 or free-for-all game to the autonomous S1 agent. S1 chooses goals and plays without model replies. Joins the supplied room when currently unseated; forceStart explicitly requests a start vote after lobby admission. Existing move queues receive a clear request before autonomous control. Manual movement is blocked until stop_agent. Does not register usernames or start another game after a result.', ['act'], {
         room: { type: 'string', minLength: 1, description: '当前无房间时必填；有房间时只可填当前房间。' },
         forceStart: { type: 'boolean', default: false, description: 'true 表示入房确认后自动投本局开始票；省略时不投。' },
       }, [], (args) => this.startAgent(args)),
@@ -512,9 +512,10 @@ export class GeneralsWorld implements World {
     const scores = view?.scores as Array<{ i?: number }> | undefined;
     const playerCount = Math.max(...metadataCounts, scores?.length ?? 0,
       Array.isArray(view?.generals) ? view.generals.length : 0, state.playerIndex + 1);
-    if (playerCount !== 2 || state.playerIndex > 1) throw new Error('S1 supports confirmed 1v1 games only');
+    if (playerCount < 2) throw new Error('S1 requires a confirmed multiplayer game');
     const teams = Array.isArray(state.start.teams) ? state.start.teams : [];
-    if (teams[0] != null && teams[0] === teams[1]) throw new Error('S1 does not support allied transfers');
+    const assignedTeams = teams.filter((team) => team != null && (typeof team !== 'number' || team >= 0));
+    if (new Set(assignedTeams).size !== assignedTeams.length) throw new Error('S1 does not support allied transfers');
     for (let index = 0; index < state.width * state.height; index++) {
       const tile = state.tile(index);
       if (tile.tunnelLimit !== null && tile.tunnelLimit !== 0) throw new Error('S1 does not support tunnels');
@@ -626,7 +627,7 @@ export class GeneralsWorld implements World {
       phase: this.phase, observedTurn: this.state?.turn ?? null,
       method: 'bounded_rule_search', activeIntentRevision: this.intents.snapshot().active?.revision ?? null,
       intent: this.intents.snapshot(),
-      supportedRules: 'standard_or_city_state_1v1', error: this.agentError,
+      supportedRules: 'standard_or_city_state_ffa', error: this.agentError,
       lastDecision, pendingAction: this.pendingAction?.action ?? null,
       lastFeedback: this.lastFeedback,
     };

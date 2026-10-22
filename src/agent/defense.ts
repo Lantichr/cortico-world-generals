@@ -138,8 +138,9 @@ export function planDefense(observation: AgentObservation, analysis: PositionAna
       + `;deadline_turn:${deadlineTurn};slack:${slackTurns};action_required:${actionRequired}`
       + (alternativesUsed ? ';route_search:bounded_alternatives' : '')
       + (treeUsed ? ';route_search:owned_gathering_tree' : '')
-      + `;${demand.basis === 'history' ? `history_assumption:${demand.tile}@${demand.lastSeenTurn}` : `visible_enemy:${demand.tile}`}`
+      + (demand.players ? '' : `;${demand.basis === 'history' ? `history_assumption:${demand.tile}@${demand.lastSeenTurn}` : `visible_enemy:${demand.tile}`}`)
       + `;enemy_player:${demand.owner};enemy_sources:${demand.sources.join(',')};enemy_scenario:${demand.scenario}`
+      + (demand.players ? `;enemy_players:${demand.players.join(',')}` : '')
       + ';assumption:ignore_friendly_screen;possible_enemy_paths;ignore_enemy_transit_resistance;no_enemy_reinforcement;same_turn_home_reinforcement_before_attack;cumulative_visible_sequences;historical_sources_alternative;selected_enemy_orders;attack_before_production' };
 }
 

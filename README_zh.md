@@ -12,7 +12,7 @@ Owner: [`src/definition.ts`](src/definition.ts)、[`src/config.ts`](src/config.t
 
 - 支持 World API 6 的 Cortico 宿主，Node.js 22.15 或更新版本。
 - Bot Server 的私有账号标识，且可连接 `botws.generals.io`。
-- 使用 S1 时，房间为常规或 City-State 1v1。
+- 使用 S1 时，房间为常规或 City-State 的 1v1 / FFA，无正式组队。
 
 World id 为 `generals`，宿主不能包含同 id 的内建注册，仅设 `enabled=false` 无法解除冲突。使用 World API 5 的宿主需先升级到 API 6 再安装本包。迁移步骤见[兼容说明](docs/host-compatibility.md)；保留 `worlds.generals` 配置、部署 `.env` 与 Memory。
 
@@ -62,7 +62,7 @@ corepack pnpm add --ignore-workspace cortico-world-generals@next
 
 ## 能力边界
 
-- 默认 `manual`，自主游戏需显式调用 `generals_start_agent`。S1 只支持已确认的常规与 City-State 1v1；不支持的规则、队友转移或隧道会停止自主控制。
+- 默认 `manual`，自主游戏需显式调用 `generals_start_agent`。S1 支持已确认的常规与 City-State 的 1v1 / FFA；正式组队、不支持的规则、队友转移或隧道会停止自主控制。
 - 未接入可选暂停联动时，宿主全局暂停不会停止 S1。用 `generals_stop_agent` 撤销委托并请求清队列，或停用 World。远端对局继续，已处理的移动不能撤回。
 - 断线不自动重连。重启 World 不恢复房间、开始票、委托或战略意图。
 - 当前事实、最后可见事实和策略估计分开记录；不会根据历史数据刷新迷雾兵力。

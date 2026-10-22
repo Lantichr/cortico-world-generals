@@ -205,7 +205,7 @@ describe('Generals S1 control over the local protocol', () => {
   it.each([
     { options: { modifiers: [2] } },
     { options: { map: 'custom' } },
-    { usernames: ['[Bot] Fixture', 'Opponent', 'Third'] },
+    { teams: [0, 1, 1] },
     { teams: [0, 0] },
   ])('stops unsupported automatic games before sending attacks: %j', async (start) => {
     await call('start_agent', { room: 'fixture' });
@@ -213,6 +213,23 @@ describe('Generals S1 control over the local protocol', () => {
     await frame(1);
     expect(await read()).toMatchObject({ control: 'manual', error: expect.any(String) });
     expect(attacks()).toHaveLength(0);
+  });
+
+  it('plays as player two, continues after one opponent is eliminated and stops only on a server result', async () => {
+    await call('start_agent', { room: 'fixture' });
+    await game({ playerIndex: 2, usernames: ['First', 'Second', '[Bot] Fixture'], teams: [0, 1, 2] });
+    const owners = [0, -1, -1, -1, 2, -1, -1, -1, 1], counts = [1, 0, 0, 0, 30, 0, 0, 0, 1];
+    const extra = { generals: [0, 8, 4], scores: [{ i: 0, total: 1, tiles: 1, dead: false },
+      { i: 1, total: 1, tiles: 1, dead: false }, { i: 2, total: 30, tiles: 1, dead: false }] };
+    await frame(1, extra, owners, counts);
+    await waitFor(() => attacks().length > 0);
+    expect(await read()).toMatchObject({ control: 'autonomous', error: null });
+    await frame(2, { ...extra, attackIndex: 1, generals: [-1, 8, 4], scores: [
+      { i: 0, total: 0, tiles: 0, dead: true }, { i: 1, total: 1, tiles: 1, dead: false },
+      { i: 2, total: 31, tiles: 2, dead: false }] }, [2, -1, -1, -1, 2, -1, -1, -1, 1], counts);
+    expect(await read()).toMatchObject({ control: 'autonomous', phase: 'playing', error: null });
+    send('game_won', {});
+    await waitFor(async () => (await read()).control === 'manual');
   });
 
   it('invalidates a pending move when its source changes owner with an unchanged army count', async () => {

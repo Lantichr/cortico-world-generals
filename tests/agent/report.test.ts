@@ -27,6 +27,39 @@ function status(): AgentReport {
 }
 
 describe('Generals strategy brief', () => {
+  it('reports parallel pressure as a player set without assigning a single army position', () => {
+    const report = status();
+    report.lastDecision = decision('defense_partial;target:80;projected:40;gap:40;deadline_turn:106;enemy_player:null;enemy_players:1,2');
+    expect(createStrategyBrief(observation(), report).estimates?.threat)
+      .toEqual({ players: [1, 2], basis: 'parallel_upper_bound' });
+  });
+  it('keeps a high-index self, S2 target, S1 focus and nearby opponent when a twelve-player brief is capped', () => {
+    const view = observation();
+    view.playerIndex = 11; view.width = 14; view.height = 1;
+    view.tiles = Array.from({ length: 14 }, (_, index) => ({ index, x: index, y: 0, terrain: -1,
+      visible: true, owner: null as number | null, armies: 0, city: false, general: false, tunnelLimit: 0 }));
+    for (const index of [0, 1, 2]) Object.assign(view.tiles[index], { owner: 0, terrain: 0, armies: 100 });
+    Object.assign(view.tiles[11], { owner: 10, terrain: 10, armies: 20 });
+    Object.assign(view.tiles[12], { owner: 11, terrain: 11, armies: 100, general: true });
+    view.generals = Array(12).fill(-1); view.generals[11] = 12;
+    view.history = view.tiles.map((tile) => ({ ...tile, lastSeenTurn: 100 }));
+    view.scores = Array.from({ length: 12 }, (_, i) => ({ i, total: 100, tiles: 1, dead: false }));
+    const report = status();
+    report.lastDecision!.focus = { player: 3, reason: 'policy_focus' };
+    report.intent.active = { gameId: view.gameId, controlEpoch: 2, revision: 1, basedOnTurn: 100,
+      expiresTurn: 200, constraints: {}, goal: { kind: 'attack_general', player: 9 } };
+    const brief = createStrategyBrief(view, report);
+    expect(brief.facts.players.slice(0, 3).map((entry) => entry.player)).toEqual([11, 9, 3]);
+    expect(brief.facts.players.map((entry) => entry.player)).toContain(10);
+    expect(brief.facts.scores.map((entry) => entry.player)).toContain(11);
+    expect(brief.facts.enemyForces.map((entry) => entry.player)).toEqual(expect.arrayContaining([0, 10]));
+    expect(brief.facts.omitted).toMatchObject({ players: 4, enemyForces: 2 });
+    expect(brief.focus).toMatchObject({ player: 3 });
+    expect(brief.facts.playerCounts).toEqual({ active: 12, inactive: 0, eliminated: 0 });
+    const next = structuredClone(view);
+    next.scores = (next.scores as Record<string, unknown>[]).map((entry) => entry.i === 8 ? { ...entry, dead: true, tiles: 0 } : entry);
+    expect(significantStrategyChange(brief, createStrategyBrief(next, report, brief))).toBe('player_lifecycle_changed');
+  });
   it('reports bounded visible forces and scores without projecting an action into map facts', () => {
     const view = observation(), report = status();
     const before = structuredClone({ view, report });
@@ -100,7 +133,7 @@ describe('Generals strategy brief', () => {
     next.scores = [{ i: 0, total: 145, tiles: 7 }, { i: 1, total: 130, tiles: 3 }, { i: 2, total: 0, tiles: 0 }];
     const brief = createStrategyBrief(next, status(), baseline);
     expect(brief.playerIndex).toBe(1);
-    expect(brief.facts.scores).toMatchObject([
+    expect([...brief.facts.scores].sort((a, b) => a.player - b.player)).toMatchObject([
       { player: 0, delta: { sinceTurn: 100, total: 15, tiles: 2 } },
       { player: 1, delta: { sinceTurn: 100, total: -10, tiles: -1 } }, { player: 2, delta: null },
     ]);

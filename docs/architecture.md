@@ -53,3 +53,12 @@ The full tool, intent and feedback contract is in [contracts.md](contracts.md). 
 Offline tests use a local WebSocket server and a deterministic arena for complete S1 games against scripted opponents. They do not connect to the Bot Server or start a real bot.
 
 `tests/agent/arena.ts` is an independent two-player referee with fog and common 2/50-turn production. Its scripted baselines cover stationary, random, expanding, pushing and raiding behavior. Tests vary seeds, mirror starts and use standard and City-State modes. The arena resolves players in alternating order, and does not model live network latency, the official queue or AFK enforcement. Its results establish behavior under those conditions and do not measure human-level playing strength.
+
+
+FFA uses the same movement and production model. `agent/ffa.ts` selects an attack focus from reachable surviving opponents, with an optional S2 target override. A focus is a heuristic preference; general-capture opportunities and defense against every opponent remain eligible. S1 can develop and scout without selecting an opponent.
+
+Home defense combines cumulative demands from different players at each deadline. Within one player, selected attack orders and historical locations remain alternatives. Across players, the greatest prefix demand of each player is summed; this conservative envelope does not simulate a joint optimal schedule or conflict between enemy routes. The strategy brief labels it `parallel_upper_bound` and lists its players.
+
+FFA briefs retain at most eight players, prioritizing self, the S2 target, S1 focus and nearby threats. Enemy forces include one representative per player for at most six players; omitted counts and full lifecycle totals expose truncation. An eliminated target invalidates its intent. Capturing one opponent does not finish the delegated game; only the server result ends control.
+
+`tests/agent/ffa-arena.ts` is a separate N-player referee with local visibility, production, elimination inheritance and simultaneous reciprocal general captures. Explicit initiative orders exercise contested captures. It does not implement the official dependency resolver, network queues or AFK rules; offline results do not establish competitive strength.

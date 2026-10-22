@@ -1,4 +1,5 @@
 import type { AgentObservation, StrategyGoal, StrategyIntent, StrategyIntentState, StrategyIntentStatus } from './agent/contracts.ts';
+import { resolvePlayerLifecycles } from './agent/lifecycle.ts';
 
 export const STRATEGY_INTENT_LIMITS = { reserves: 32, avoidTiles: 64, rationale: 512 };
 const coordinateSchema = {
@@ -136,7 +137,8 @@ function parseIntent(args: Record<string, unknown>, observation: AgentObservatio
   } else if (rawGoal.kind === 'attack_general') {
     fields(rawGoal, ['kind', 'player']);
     const player = integer(rawGoal.player, 'goal.player');
-    if (player > 1 || player === observation.playerIndex) throw new Error('intent_target_player_must_be_opponent');
+    if (player === observation.playerIndex || !resolvePlayerLifecycles(observation)
+      .some((entry) => entry.player === player && entry.status !== 'eliminated')) throw new Error('intent_target_player_must_be_opponent');
     goal = { kind: 'attack_general', player };
   } else if (['capture_city', 'gather', 'defend', 'scout'].includes(String(rawGoal.kind))) {
     fields(rawGoal, ['kind', 'target']);

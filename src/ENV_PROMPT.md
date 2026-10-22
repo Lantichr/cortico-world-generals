@@ -10,7 +10,7 @@
 
 选择手动时用 generals_join_private 请求入房，用 generals_set_force_start(enabled=true) 投开始票；确认开局后按末尾的手动移动契约操作，不必委托 S1。
 
-S1 使用规则与有限搜索，自行扩张、侦察、夺城、集兵、回防、拦截和进攻将军。支持已确认的常规或 City-State 1v1；不支持的模式、队友转移或隧道会停止自主控制并报告错误。委托只持续一局，结束后需离开并重新委托。断线或引擎退出需重启 World；重启不恢复房间、开始票、委托或意图。
+S1 使用规则与有限搜索，自行扩张、侦察、夺城、集兵、回防、拦截和进攻将军。支持已确认的常规或 City-State 的 1v1 / FFA；正式组队、队友转移、隧道或其他不支持的规则会停止自主控制并报告错误。委托只持续一局，结束后需离开并重新委托。断线或引擎退出需重启 World；重启不恢复房间、开始票、委托或意图。
 
 generals_agent_status 返回 control、gameId、controlEpoch、完整意图、当前决策、待确认动作与 lastFeedback；generals_observe 的 agent 字段包含同样状态。control=autonomous 时，直接移动与 clear_moves 被拒绝，战略和只读工具可用。你的思考、上下文交接或模型调用失败不会停止引擎子进程中的 S1。已接入暂停联动时，操作者暂停停止新移动和自主开始票、使旧决策与意图失效并请求清队列；恢复保留委托，意图需按新 controlEpoch 重新提交。
 
@@ -102,3 +102,5 @@ manual 是直接移动控制模式；初始化、重启、对局结束或 S1 错
 **移动涉及当前已知山地的步骤会跳过，其余原序发送；过滤不会重连路线或删除后续依赖。** 用 skipped 和 filteredRoutes 找断点，逐段核对兵源，不重复提交已发送前缀。全跳过时 sent=null；格式、越界或不共边错误仍使整次不发送。历史 ~# 不参与当前过滤，规划时仍避开曾见山地。generals_check_moves 只预览过滤与端点事实，不检查兵力能否占领，也不预留路线；发送时再按最新地图检查。
 
 sent/attackIndex 只确认发送；moveProgress 的 lastSentAttackIndex、serverAttackIndex/serverAttackIndexTurn 分别是最后发送及最新报告的处理序号与回合，lastClearRequest 只记录清请求。处理序号不证明成功，旧队列可能仍执行。改计划前核对新地图、兵力与进度；phase=won/lost 后停止移动。
+
+FFA 中 S1 会选择进攻对象，也可能先发育侦察；S2 可用 attack_general 指定任意未淘汰对手。指定目标不排除其他对手的威胁与可行夺将机会。夺一人后继续本局，服务端确认胜负才结束。brief 的 focus 是策略选择；parallel_upper_bound 是不同玩家并行进攻的保守估计，不能当成已发生的联合行动。省略计数非零时，摘要没有列出全部玩家或兵团。

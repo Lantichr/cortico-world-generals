@@ -12,7 +12,7 @@ This release candidate targets **Cortico 0.2.3, World API 6**. Manual tools, the
 
 - A Cortico host supporting World API 6, with Node.js 22.15 or later.
 - A private Bot Server account identifier and network access to `botws.generals.io`.
-- For S1: a standard or City-State 1v1 room.
+- For S1: a standard or City-State 1v1 or free-for-all room.
 
 The World id is `generals`. The host must not contain an in-tree registration with the same id; setting that World's `enabled=false` does not remove the registration. Hosts using World API 5 must upgrade to an API 6 host before installing this package. See [host compatibility](docs/host-compatibility.md) for migration; retain `worlds.generals`, the deployment `.env` and Memory.
 
@@ -60,7 +60,7 @@ The read-only viewer listens on `127.0.0.1`. It shows the current fog view, play
 
 ## Boundaries
 
-- S1 supports confirmed standard and City-State 1v1 rules. Unsupported rules, allied transfers and tunnels stop autonomous control.
+- S1 supports confirmed standard and City-State 1v1 and free-for-all rules. Unsupported rules, allied transfers and tunnels stop autonomous control.
 - Without optional pause integration, the host's global pause leaves S1 running. Use `generals_stop_agent` to revoke delegation and request queue clearing, or deactivate the World. The remote game continues; processed moves cannot be recalled.
 - There is no automatic reconnection. Restarting the World creates a fresh connection without restoring the room, start vote, delegation or intent.
 - Current observations, last-seen facts and policy estimates have separate meanings. Hidden armies are not refreshed from history.

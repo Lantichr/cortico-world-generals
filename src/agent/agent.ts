@@ -11,6 +11,7 @@ import { planGatheringTree, reprojectGatheringTree, type GatheringTreePlan } fro
 import { activeStrategyIntent, checkStrategyMove, checkStrategyRoutes, checkStrategyTask, strategyFallback, strategyFeedback,
   strategyGatherTarget, strategyGoalState, strategyReserve, type StrategyFeedback } from './strategy.ts';
 import { canPlayerAct, resolvePlayerLifecycles } from './lifecycle.ts';
+import { selectFfaFocus, type FfaFocus } from './ffa.ts';
 
 /** A complete deterministic game policy; it has no Core, Persona or model dependency. */
 export class GeneralsAgent {
@@ -27,6 +28,7 @@ export class GeneralsAgent {
   private intentFeedback: StrategyFeedback | null = null;
   private completedStrategy: StrategyFeedback | null = null;
   private lifecycleSignature = '';
+  private focus: FfaFocus | null = null;
 
   constructor(private readonly options: AgentOptions) {}
 
@@ -42,6 +44,7 @@ export class GeneralsAgent {
     this.intentFeedback = null;
     this.completedStrategy = null;
     this.lifecycleSignature = '';
+    this.focus = null;
   }
 
   getStrategyFeedback(): StrategyFeedback | null { return this.intentFeedback ? { ...this.intentFeedback } : null; }
@@ -52,6 +55,7 @@ export class GeneralsAgent {
     observation = { ...observation, playerLifecycle: resolvePlayerLifecycles(observation) };
     const intent = activeStrategyIntent(observation, inputIntent);
     const finish = (decision: AgentDecision): AgentDecision => {
+      if (this.focus) decision.focus = { ...this.focus };
       this.intentFeedback = intent ? this.completedStrategy?.revision === intent.revision ? { ...this.completedStrategy }
         : strategyFeedback(observation, intent, decision) : null;
       if (this.intentFeedback?.status === 'completed') this.completedStrategy = { ...this.intentFeedback };
@@ -82,6 +86,7 @@ export class GeneralsAgent {
       this.intentFeedback = null;
       this.completedStrategy = null;
       this.lifecycleSignature = '';
+      this.focus = null;
     }
     if (observation.revision <= this.revision || observation.turn <= this.turn) return wait('duplicate_or_older_observation', false);
     this.revision = observation.revision;
@@ -131,6 +136,10 @@ export class GeneralsAgent {
     const analysis = analyzePosition(observation, this.hiddenForces);
     if (analysis.home < 0 || !observation.tiles[analysis.home]
       || observation.tiles[analysis.home].owner !== observation.playerIndex) return wait('own_general_unavailable');
+    const focus = selectFfaFocus(observation, analysis, this.focus?.player ?? null, completedIntent ? null : intent);
+    if (this.focus?.player !== focus?.player && this.commitment
+      && !['defend', 'intercept', 'gather'].includes(this.commitment.kind)) this.commitment = null;
+    this.focus = focus;
     const timing = createThreatTiming(observation, analysis);
     let tree: GatheringTreePlan | null = null;
     let transport: TaskCandidate | null = null;
@@ -218,7 +227,7 @@ export class GeneralsAgent {
     }
     const candidates = rankTasks(observation, analysis, routes, this.commitment,
       budget.fork(Math.floor(budget.remainingNodes / 2)), gathering, defense?.actionRequired ?? false, timing, gatheringTargets, intent,
-      completedIntent);
+      completedIntent, this.focus);
     let candidate: TaskCandidate | null = candidates[0]
       ?? (budget.exhausted || budget.remainingNodes === 0 || !budget.timeAvailable()
         ? constrainedFallback() : null);
