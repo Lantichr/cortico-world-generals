@@ -75,6 +75,7 @@ The read-only viewer listens on `127.0.0.1`. It shows the current fog view, play
 - [Host compatibility](docs/host-compatibility.md)
 - [Sources and research references](docs/references.md)
 - [Release checks and publication](docs/releasing.md)
+- [Standalone LLM evaluation](docs/llm-evaluation.md)
 - [Optional streaming commentary](examples/streaming-commentary.md)
 
 The default [environment prompt](src/ENV_PROMPT.md) describes game mechanics and tool use. It does not prescribe a persona or require commentary. A package or deployment file at `worlds/generals/ENV_PROMPT.md` can override it; see [operations](docs/operations.md#environment-prompt).

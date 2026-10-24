@@ -1,0 +1,15 @@
+{
+  "mode": "llm",
+  "suite": "all",
+  "timing": "realtime",
+  "tickMs": 500,
+  "maxTurns": 1200,
+  "maxModelCalls": 16,
+  "model": {
+    "baseUrl": "https://endpoint.example/v1",
+    "protocol": "chat_completions",
+    "model": "configured-model",
+    "apiKeyEnv": "CORTICO_GENERALS_EVAL_API_KEY",
+    "maxOutputTokens": 2048
+  }
+}

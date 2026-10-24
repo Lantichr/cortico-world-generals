@@ -77,6 +77,7 @@ corepack pnpm add --ignore-workspace cortico-world-generals@next
 - [宿主兼容](docs/host-compatibility.md)
 - [机制来源与研究参考](docs/references.md)
 - [发布检查与流程](docs/releasing.md)
+- [独立 LLM 评测](docs/llm-evaluation.md)
 - [可选直播解说示例](examples/streaming-commentary.md)
 
 默认[环境提示词](src/ENV_PROMPT.md)说明机制与工具用途，不规定人格，也不要求解说。bot 包或部署的 `worlds/generals/ENV_PROMPT.md` 可覆盖模板，见[操作说明](docs/operations.md#environment-prompt)。

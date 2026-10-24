@@ -46,7 +46,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "check:package": "node --import tsx scripts/check-package.ts",
-    "check:host-patch": "node --import tsx scripts/check-host-patch.ts"
+    "check:host-patch": "node --import tsx scripts/check-host-patch.ts",
+    "eval:llm": "node --import tsx scripts/eval-llm.ts"
   },
   "dependencies": {
     "ws": "^8.18.0"
