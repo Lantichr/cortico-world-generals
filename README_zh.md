@@ -6,7 +6,7 @@ Owner: [`src/definition.ts`](src/definition.ts)、[`src/config.ts`](src/config.t
 
 连接 generals.io Bot Server 的 [Cortico](https://github.com/Pal-AI-Lab/Cortico) World，提供地图观测、手动移动工具、本机观战画面，以及可选的规则与有限搜索代理 S1。模型可以作为 S2，通过结构化意图向 S1 指定战略目标。
 
-此候选版面向 **Cortico 0.2.3 / World API 6**。原版宿主可使用手动工具、观战与自主 S1；[操作者暂停联动](docs/host-compatibility.md)为可选能力。玩家通过 `bot.generals.io` 加入 Bot Server 房间。
+此候选版面向 **World API 6**，开发依赖为 Cortico SDK 0.2.3；manifest、构造与自描述也已通过 Cortico 0.2.6 的检查。原版宿主可使用手动工具、观战与自主 S1；[操作者暂停联动](docs/host-compatibility.md)为可选能力。玩家通过 `bot.generals.io` 加入 Bot Server 房间。
 
 ## 运行条件
 

@@ -12,6 +12,7 @@ import type { ToolCallContext, World, WorldHost } from 'cortico/core/types.ts';
 import { nullLogger } from 'cortico/core/util.ts';
 import { dryMountWorld, fakeWorldContext } from 'cortico/extensions/dry-mount.ts';
 import { parseExtensionManifest, type ExtensionPackageJson } from 'cortico/extensions/manifest.ts';
+import { checkDescribe } from 'cortico/extensions/describe-export.ts';
 import { registerFrameworkResolver } from 'cortico/extensions/runtime.ts';
 import type { WorldDefinition, WorldSection } from 'cortico/world.ts';
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -22,6 +23,7 @@ const temporary = mkdtempSync(join(tmpdir(), 'cortico-generals-package-'));
 const packedRoot = join(temporary, 'package');
 const required = [
   'package.json', 'README.md', 'README_zh.md', 'LICENSE',
+  'describe.json',
   'src/index.ts', 'src/definition.ts', 'src/config.ts', 'src/world.ts', 'src/proxy.ts',
   'src/engine-child.ts', 'src/engine-ipc.ts', 'src/ENV_PROMPT.md',
   'src/agent/agent.ts', 'src/viewer/server.ts', 'src/viewer/contracts.ts',
@@ -210,6 +212,11 @@ try {
   });
   assert.deepEqual(report.failures, []);
   for (const warning of report.warnings) console.warn(warning);
+  const described = await checkDescribe('world', definition, parsed.manifest.describe, {
+    scratchDir: join(temporary, 'describe'), packageDir: packedRoot,
+  });
+  assert.deepEqual(described.failures, []);
+  assert.deepEqual(described.warnings, []);
   assert.ok(existsSync(join(packedRoot, 'src/ENV_PROMPT.md')));
   await smoke(definition);
   console.log(`${manifest.name}@${manifest.version}: npm tarball, dry mount, engine, manual move, unpatched-host S1, viewer and SSE passed`);

@@ -27,13 +27,15 @@
   "cortico": {
     "kind": "world",
     "api": 6,
-    "displayName": "Generals"
+    "displayName": "Generals",
+    "describe": "describe.json"
   },
   "files": [
     "src",
     "docs",
     "examples",
     "compat",
+    "describe.json",
     "README.md",
     "README_zh.md",
     "LICENSE"

@@ -5,7 +5,8 @@ Owner: [`package.json`](../package.json), [CI](../.github/workflows/ci.yml), [pu
 The package is `cortico-world-generals`; the source repository is
 [`Lantichr/cortico-world-generals`](https://github.com/Lantichr/cortico-world-generals).
 The current candidate is `0.1.0-rc.2`, published with the `next` dist-tag. It targets World API 6
-and the tested Cortico SDK `0.2.3`. S1 runs on the unmodified host. The included
+and the tested Cortico SDK `0.2.3`; declaration and construction checks also pass on host
+`0.2.6`. S1 runs on the unmodified host. The included
 [pause-hook patch](host-compatibility.md) optionally links global pause to S1; without it,
 global pause leaves S1 running. Release notes must retain this operating limit.
 
@@ -23,12 +24,16 @@ npm pack --dry-run
 ```
 
 `check:package` creates and unpacks a real tarball, then runs the packaged engine against a
-local protocol server and reads its viewer and SSE endpoint. It uses no game account.
+local protocol server and reads its viewer and SSE endpoint. It also checks the packaged
+`describe.json` against the definition's tools, events and environment prompt. It uses no game account.
 `check:host-patch` applies the optional compatibility patch to a temporary copy of the installed
 SDK and verifies pause propagation. Keep this check even when the target host does not use the
 patch. Neither command changes the installed SDK or a deployment.
 
-The package ships `src/`, documentation, examples, the host patch and the MIT license. Tests,
+After changing tool/event declarations or the environment prompt, regenerate `describe.json`
+from the Cortico source host's root with `pnpm describe:extension /path/to/cortico-world-generals`.
+
+The package ships `src/`, `describe.json`, documentation, examples, the host patch and the MIT license. Tests,
 development tools, dependencies, account identifiers and deployment data stay out of the tarball.
 Review the Git tree and the pack listing before publication. An initial repository should contain
 the extension's source history, without importing the parent framework's unrelated history.

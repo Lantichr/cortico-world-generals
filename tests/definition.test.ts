@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { dryMountWorld, fakeWorldContext } from 'cortico/extensions/dry-mount.ts';
 import { EXTENSION_API_VERSIONS, parseExtensionManifest } from 'cortico/extensions/manifest.ts';
+import { checkDescribe } from 'cortico/extensions/describe-export.ts';
 import definition from '../src/index.ts';
 import { GENERALS } from '../src/definition.ts';
 import { GENERALS_DEFAULTS } from '../src/config.ts';
@@ -28,6 +29,13 @@ describe('Generals extension contract', () => {
   it('passes SDK dry mounting with default configuration and no account secret', async () => {
     const report = await dryMountWorld(definition, { scratchDir, packageDir });
     expect(report.failures).toEqual([]);
+  });
+
+  it('publishes a self-description matching live tools and the environment prompt', async () => {
+    const report = await checkDescribe('world', definition, packageJson.cortico.describe, { scratchDir, packageDir });
+    expect(report.failures).toEqual([]);
+    expect(report.warnings).toEqual([]);
+    expect(packageJson.files).toContain(packageJson.cortico.describe);
   });
 
   it('returns independent nested configuration objects for each deployment', () => {
