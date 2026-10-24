@@ -1,0 +1,17 @@
+{
+  "mode": "llm",
+  "suite": "snapshots",
+  "timing": "realtime",
+  "tickMs": 500,
+  "maxTurns": 1200,
+  "requestTimeoutMs": 120000,
+  "maxModelCalls": 16,
+  "model": {
+    "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+    "protocol": "gemini_interactions",
+    "model": "gemini-3.8-flash",
+    "apiKeyEnv": "CORTICO_GENERALS_EVAL_GEMINI_API_KEY",
+    "reasoningEffort": "low",
+    "maxOutputTokens": 16384
+  }
+}

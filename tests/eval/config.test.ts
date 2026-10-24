@@ -52,9 +52,9 @@ describe('standalone suite configuration', () => {
     }
   });
 
-  it('requires model configuration for LLM mode and accepts both protocols', () => {
+  it('requires model configuration for LLM mode and accepts all declared protocols', () => {
     expect(() => parseConfig({ mode: 'llm' })).toThrow('LLM mode requires model config.');
-    for (const protocol of ['chat_completions', 'responses']) {
+    for (const protocol of ['chat_completions', 'responses', 'gemini_interactions']) {
       expect(parseConfig({ mode: 'llm', model: { ...model, protocol } }).model).toEqual({ ...model, protocol });
     }
     expect(parseConfig({ model }).model).toEqual(model);
@@ -79,12 +79,52 @@ describe('standalone suite configuration', () => {
   it('validates nested model fields and its output-token limit', () => {
     const invalid = [{ baseUrl: null }, { baseUrl: 12 }, { model: null }, { model: ' ' }, { protocol: null },
       { protocol: ['responses'] }, { protocol: 'other' }, { maxOutputTokens: null }, { maxOutputTokens: '400' },
-      { maxOutputTokens: 0 }, { maxOutputTokens: 100_001 }, { maxOutputTokens: 1.5 },
+      { maxOutputTokens: 0 }, { maxOutputTokens: Number.MAX_SAFE_INTEGER + 1 }, { maxOutputTokens: 1.5 },
       { maxOutputTokens: Number.NaN }, { maxOutputTokens: Number.POSITIVE_INFINITY }];
     for (const fields of invalid) expect(() => parseConfig({ model: { ...model, ...fields } })).toThrow('Invalid model config.');
-    for (const maxOutputTokens of [1, 100_000]) {
+    for (const maxOutputTokens of [1, 100_000, 393_216]) {
       expect(parseConfig({ model: { ...model, maxOutputTokens } }).model?.maxOutputTokens).toBe(maxOutputTokens);
     }
+  });
+
+  it.each([
+    { protocol: 'chat_completions', thinking: 'enabled', reasoningEffort: 'low', maxTokensParameter: 'max_tokens' },
+    { protocol: 'chat_completions', enableThinking: true, preserveThinking: true, reasoningEffort: 'xhigh', maxTokensParameter: 'max_completion_tokens' },
+    { protocol: 'chat_completions', enableThinking: true, thinkingBudget: 0 },
+    { protocol: 'chat_completions', enableThinking: false, preserveThinking: false, reasoningEffort: 'none' },
+    { protocol: 'responses', reasoningEffort: 'high' },
+    { protocol: 'gemini_interactions', reasoningEffort: 'minimal' },
+    { protocol: 'gemini_interactions', reasoningEffort: 'medium' },
+  ])('preserves explicit protocol options %#', (fields) => {
+    expect(parseConfig({ model: { ...model, ...fields } }).model).toEqual({ ...model, ...fields });
+  });
+
+  it.each([
+    { reasoningEffort: '' }, { reasoningEffort: null }, { reasoningEffort: 'HIGH' }, { reasoningEffort: [] },
+    { maxTokensParameter: null }, { maxTokensParameter: 'max_output_tokens' },
+    { thinking: true }, { thinking: 'auto' }, { enableThinking: null }, { enableThinking: 'true' },
+    { preserveThinking: null }, { preserveThinking: 1 },
+    { thinkingBudget: null }, { thinkingBudget: -1 }, { thinkingBudget: 0.5 }, { thinkingBudget: Number.MAX_SAFE_INTEGER + 1 },
+    { reasoningEffort: 'low', thinkingBudget: 2048 },
+    { thinking: 'enabled', enableThinking: true },
+    { thinking: 'disabled', reasoningEffort: 'low' }, { enableThinking: false, reasoningEffort: 'high' },
+    { thinking: 'enabled', reasoningEffort: 'none' }, { enableThinking: true, reasoningEffort: 'none' },
+    { thinking: 'disabled', thinkingBudget: 2048 }, { enableThinking: false, thinkingBudget: 2048 },
+  ])('rejects invalid or contradictory Chat options before a request %#', (fields) => {
+    expect(() => parseConfig({ model: { ...model, protocol: 'chat_completions', ...fields } }))
+      .toThrow('Invalid model request configuration.');
+  });
+
+  it.each(['responses', 'gemini_interactions'])('rejects ignored Chat-only options for %s', (protocol) => {
+    for (const fields of [{ maxTokensParameter: 'max_tokens' }, { thinking: 'enabled' }, { enableThinking: true },
+      { preserveThinking: true }, { thinkingBudget: 2048 }]) {
+      expect(() => parseConfig({ model: { ...model, protocol, ...fields } })).toThrow('Invalid model request configuration.');
+    }
+  });
+
+  it.each(['none', 'xhigh', 'max', 'ultra'])('rejects an unsupported native thinking level %s', (reasoningEffort) => {
+    expect(() => parseConfig({ model: { ...model, protocol: 'gemini_interactions', reasoningEffort } }))
+      .toThrow('Invalid model request configuration.');
   });
 
   it('accepts only a named CORTICO environment variable for credentials', () => {

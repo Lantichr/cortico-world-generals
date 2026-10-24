@@ -1,0 +1,19 @@
+{
+  "mode": "llm",
+  "suite": "snapshots",
+  "timing": "realtime",
+  "tickMs": 500,
+  "maxTurns": 1200,
+  "requestTimeoutMs": 120000,
+  "maxModelCalls": 16,
+  "model": {
+    "baseUrl": "https://api.deepseek.com",
+    "protocol": "chat_completions",
+    "model": "deepseek-flash",
+    "apiKeyEnv": "CORTICO_GENERALS_EVAL_DEEPSEEK_API_KEY",
+    "thinking": "enabled",
+    "reasoningEffort": "low",
+    "maxTokensParameter": "max_tokens",
+    "maxOutputTokens": 16384
+  }
+}

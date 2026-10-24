@@ -1,4 +1,9 @@
-import { createHttpModel } from './provider.ts';
+import { createHttpModel, type HttpModelOptions, type ModelProtocol } from './provider.ts';
+
+export interface SuiteModelConfig extends Omit<HttpModelOptions, 'apiKey' | 'protocol'> {
+  protocol: ModelProtocol;
+  apiKeyEnv?: string;
+}
 
 export interface SuiteConfig {
   mode: 'scripted' | 'llm';
@@ -17,7 +22,7 @@ export interface SuiteConfig {
   repetitions: number;
   decisionBudgetMs: number;
   maxSearchNodes: number;
-  model?: { baseUrl: string; model: string; protocol: 'chat_completions' | 'responses'; apiKeyEnv?: string; maxOutputTokens: number };
+  model?: SuiteModelConfig;
 }
 
 export const SUITE_DEFAULTS: SuiteConfig = {
@@ -49,10 +54,11 @@ export function parseConfig(input: unknown): SuiteConfig {
   if (config.model !== undefined) {
     const model = config.model;
     if (!model || typeof model !== 'object' || Array.isArray(model)
-      || Object.keys(model).some((key) => !['baseUrl', 'model', 'protocol', 'apiKeyEnv', 'maxOutputTokens'].includes(key))
+      || Object.keys(model).some((key) => !['baseUrl', 'model', 'protocol', 'apiKeyEnv', 'maxOutputTokens', 'maxTokensParameter',
+        'reasoningEffort', 'thinking', 'enableThinking', 'thinkingBudget', 'preserveThinking'].includes(key))
       || typeof model.baseUrl !== 'string' || typeof model.model !== 'string' || !model.model.trim()
-      || !['chat_completions', 'responses'].includes(model.protocol)
-      || !Number.isSafeInteger(model.maxOutputTokens) || model.maxOutputTokens < 1 || model.maxOutputTokens > 100_000
+      || !['chat_completions', 'responses', 'gemini_interactions'].includes(model.protocol)
+      || !Number.isSafeInteger(model.maxOutputTokens) || model.maxOutputTokens < 1
       || model.apiKeyEnv !== undefined && (typeof model.apiKeyEnv !== 'string' || !/^CORTICO_[A-Z0-9_]+$/.test(model.apiKeyEnv))) {
       throw new Error('Invalid model config.');
     }

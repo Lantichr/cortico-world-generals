@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, type Server, type ServerResponse } from 'node:http';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
-import { createHttpModel, type Message, type Tool } from '../../scripts/llm-suite/provider.ts';
+import { createHttpModel, type HttpModelOptions, type Message, type Tool } from '../../scripts/llm-suite/provider.ts';
 
 type Received = { path: string; authorization: string | undefined; body: Record<string, unknown> };
 const servers: Server[] = [];
@@ -73,7 +73,7 @@ describe('standalone model HTTP adapter', () => {
     expect(server.requests[0].body).not.toHaveProperty('tool_choice');
   });
 
-  it.each(['length', 'content_filter'])('rejects a Chat %s completion before exposing any function calls', async (finish_reason) => {
+  it.each(['length', 'content_filter', 'insufficient_system_resource', 'aborted'])('rejects a Chat %s completion before exposing any function calls', async (finish_reason) => {
     const server = await serve((_, response) => send(response, { choices: [{ finish_reason,
       message: { role: 'assistant', content: 'private diagnostic', tool_calls: [{ id: 'call-1', type: 'function',
         function: { name: 'generals_clear_intent', arguments: '{}' } }] } }], usage: textReply.usage }));
@@ -152,6 +152,60 @@ describe('standalone model HTTP adapter', () => {
       { type: 'function_call_output', call_id: 'call-1', output: '{"turn":51}' }]);
   });
 
+  it.each<{ options: Partial<HttpModelOptions>; fields: Record<string, unknown> }>([
+    { options: { thinking: 'enabled', reasoningEffort: 'low', maxOutputTokens: 393_216 },
+      fields: { thinking: { type: 'enabled' }, reasoning_effort: 'low', max_tokens: 393_216 } },
+    { options: { maxTokensParameter: 'max_completion_tokens', enableThinking: true, preserveThinking: true, reasoningEffort: 'xhigh' },
+      fields: { max_completion_tokens: 400, enable_thinking: true, preserve_thinking: true, reasoning_effort: 'xhigh' } },
+    { options: { enableThinking: true, thinkingBudget: 2048 },
+      fields: { max_tokens: 400, enable_thinking: true, thinking_budget: 2048 } },
+    { options: { thinking: 'disabled', reasoningEffort: 'none' },
+      fields: { max_tokens: 400, thinking: { type: 'disabled' }, reasoning_effort: 'none' } },
+    { options: { enableThinking: false, preserveThinking: false },
+      fields: { max_tokens: 400, enable_thinking: false, preserve_thinking: false } },
+  ])('sends explicit Chat reasoning and token fields without conflicting token caps %#', async ({ options, fields }) => {
+    const server = await serve((_, response) => send(response, textReply));
+    const client = createHttpModel({ baseUrl: server.baseUrl, model: 'fixture-strategist', maxOutputTokens: 400, ...options });
+    await client.complete([], [], new AbortController().signal);
+    expect(server.requests[0].body).toEqual({ model: 'fixture-strategist', messages: [], stream: false, ...fields });
+  });
+
+  it('maps an explicit Responses effort alongside its output cap', async () => {
+    const server = await serve((_, response) => send(response, { status: 'completed', output: [] }));
+    const client = createHttpModel({ baseUrl: server.baseUrl, model: 'fixture-strategist', protocol: 'responses',
+      maxOutputTokens: 200_000, reasoningEffort: 'high' });
+    await client.complete([], [], new AbortController().signal);
+    expect(server.requests[0].body).toEqual({ model: 'fixture-strategist', input: [], stream: false, store: false,
+      include: ['reasoning.encrypted_content'], max_output_tokens: 200_000, reasoning: { effort: 'high' } });
+  });
+
+  it('replays reasoning and per-call signatures across Chat tool rounds and a later user turn', async () => {
+    const call = (id: string) => ({ id, type: 'function' as const, function: { name: 'observe', arguments: '{}' },
+      extra_content: { google: { thought_signature: `fixture-signature-${id}` } } });
+    const calls = [call('call-1'), call('call-2')];
+    const responses = [
+      { role: 'assistant', content: null, reasoning_content: 'fixture-first-thought', tool_calls: calls },
+      { role: 'assistant', content: null, reasoning_content: null, tool_calls: [call('call-3')] },
+      { role: 'assistant', content: 'Keep gathering.', reasoning_content: 'fixture-final-thought', tool_calls: null },
+      textReply.choices[0].message,
+    ];
+    const server = await serve((_, response) => send(response, { choices: [{ message: responses.shift() }] }));
+    const client = model(server.baseUrl);
+    const messages: Message[] = [{ role: 'user', content: 'turn=50' }];
+    const first = await client.complete(messages, [], new AbortController().signal);
+    expect(first.message.tool_calls).toEqual(calls);
+    messages.push(first.message, ...calls.map((entry) => ({ role: 'tool' as const, tool_call_id: entry.id, content: '{"turn":51}' })));
+    const second = await client.complete(messages, [], new AbortController().signal);
+    expect(second.message.reasoning_content).toBeNull();
+    messages.push(second.message, { role: 'tool', tool_call_id: 'call-3', content: '{"turn":52}' });
+    const third = await client.complete(messages, [], new AbortController().signal);
+    expect(third.message).toEqual({ role: 'assistant', content: 'Keep gathering.', reasoning_content: 'fixture-final-thought' });
+    messages.push(third.message, { role: 'user', content: 'turn=60' });
+    await client.complete(messages, [], new AbortController().signal);
+    expect(server.requests[3].body.messages).toEqual(messages);
+    expect((server.requests[1].body.messages as Message[])[1].reasoning_content).toBe('fixture-first-thought');
+  });
+
   it.each([
     { output: null },
     { output: [], status: 'failed', error: { message: 'private diagnostic' } },
@@ -191,11 +245,15 @@ describe('standalone model HTTP adapter', () => {
     { choices: [] },
     { choices: [{ message: { role: 'user', content: 'wrong role' } }] },
     { choices: [{ message: { role: 'assistant', content: [] } }] },
+    { choices: [{ message: { role: 'assistant', reasoning_content: {} } }] },
+    { choices: [{ message: { role: 'assistant', reasoning_content: [] } }] },
     { choices: [{ message: { role: 'assistant', tool_calls: {} } }] },
     { choices: [{ message: { role: 'assistant', tool_calls: [null] } }] },
     { choices: [{ message: { role: 'assistant', tool_calls: [{ ...call, id: '' }] } }] },
     { choices: [{ message: { role: 'assistant', tool_calls: [call, call] } }] },
     { choices: [{ message: { role: 'assistant', tool_calls: [{ ...call, type: 'other' }] } }] },
+    { choices: [{ message: { role: 'assistant', tool_calls: [{ ...call, extra_content: null }] } }] },
+    { choices: [{ message: { role: 'assistant', tool_calls: [{ ...call, extra_content: [] }] } }] },
     { choices: [{ message: { role: 'assistant', tool_calls: [{ ...call, function: { name: 'observe', arguments: {} } }] } }] },
     { choices: [{ message: { role: 'assistant', tool_calls: [{ ...call, function: { name: '', arguments: '{}' } }] } }] },
     { ...textReply, usage: null },

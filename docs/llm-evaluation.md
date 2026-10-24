@@ -35,14 +35,14 @@ pnpm eval:llm --config scratch/llm-smoke.json --out scratch/llm-smoke-01
 ```json
 {
   "mode": "llm",
-  "suite": "all",
+  "suite": "snapshots",
   "timing": "realtime",
   "tickMs": 500,
   "maxTurns": 1200,
   "snapshotTurns": 12,
   "reportIntervalTurns": 20,
   "minReportTurns": 4,
-  "requestTimeoutMs": 20000,
+  "requestTimeoutMs": 120000,
   "maxModelCalls": 16,
   "maxToolRounds": 6,
   "maxToolCalls": 24,
@@ -53,7 +53,9 @@ pnpm eval:llm --config scratch/llm-smoke.json --out scratch/llm-smoke-01
     "protocol": "chat_completions",
     "model": "configured-model",
     "apiKeyEnv": "CORTICO_GENERALS_EVAL_API_KEY",
-    "maxOutputTokens": 2048
+    "reasoningEffort": "low",
+    "maxTokensParameter": "max_tokens",
+    "maxOutputTokens": 8192
   }
 }
 ```
@@ -63,13 +65,46 @@ $env:CORTICO_GENERALS_EVAL_API_KEY = 'your-api-key'
 pnpm eval:llm --config scratch/llm-live.json --out scratch/llm-live-01
 ```
 
-`baseUrl` 是 API 根地址，适配器按 `protocol` 追加 `/chat/completions` 或 `/responses`。支持 `chat_completions` 和 `responses` 两种工具调用协议，端点及模型须支持所选协议。公网地址须用 HTTPS；本机回环地址允许 HTTP。地址不得包含账号密码、查询参数或片段。
+`baseUrl` 是 API 根地址。`protocol` 支持 `chat_completions`、`responses` 和 `gemini_interactions`，适配器分别追加 `/chat/completions`、`/responses` 和 `/interactions`。端点及模型须支持所选协议。公网地址须用 HTTPS；本机回环地址允许 HTTP。地址不得包含账号密码、查询参数或片段。
 
-`model` 指定端点接受的模型名，`maxOutputTokens` 限制每次响应的输出预算。`apiKeyEnv` 只保存环境变量名，值从当前进程环境读取并作为 Bearer 凭据发送；无需认证的本机服务可省略该字段。配置不接受直接写入 API key。Responses 的工具调用保留响应中的协议条目，工具 schema 使用 `strict: false`，最终参数由正式 `IntentController` 校验。协议格式参考[官方工具调用文档](https://developers.openai.com/api/docs/guides/function-calling)。
+`model` 指定端点接受的模型名。`apiKeyEnv` 只保存环境变量名，值从当前进程环境读取；Chat Completions 和 Responses 使用 Bearer 凭据，Gemini 使用 `x-goog-api-key`。无需认证的本机服务可省略该字段。配置不接受直接写入 API key。
+
+`reasoningEffort` 按协议写入 Chat Completions 的 `reasoning_effort`、Responses 的 `reasoning.effort` 或 Gemini 的 `generation_config.thinking_level`。值原样传递，适配器不根据模型名替换值。Gemini 接受协议枚举 `minimal`、`low`、`medium`、`high`，具体模型支持的子集由服务校验；Chat Completions 和 Responses 的可用值也取决于端点。未配置可选思考项时不发送相应字段。
+
+`maxOutputTokens` 限制每次响应的输出预算。Chat Completions 通过 `maxTokensParameter` 选择 `max_tokens`（默认）或 `max_completion_tokens`；Responses 使用 `max_output_tokens`，Gemini 使用 `generation_config.max_output_tokens`。各家对思考 token 的计数不同，见下表。截断或未完成的响应记为模型错误，不执行其中的工具调用。
+
+Chat Completions 工具续轮保留 `reasoning_content`。Responses 保留原始输出条目，Gemini 保留原始 `steps` 及其中的思考签名，供后续工具请求回传。工具最终参数由正式 `IntentController` 校验；Responses 的工具 schema 使用 `strict: false`。协议格式参考[官方工具调用文档](https://developers.openai.com/api/docs/guides/function-calling)。
+
+## 模型配置模板
+
+三个模板默认运行六个固定局面，先验证接口和意图行为。运行完整成对对局时，将 `suite` 改为 `games` 或使用 `--suite games`；运行两者用 `all`。模板使用 `low` 思考强度、16384 输出预算和 120 秒单次请求超时，模型调用期间完整对局仍继续运行。
+
+| 模板 | 协议及模型 | 输出预算 |
+| --- | --- | --- |
+| [`llm-suite-deepseek.json`](../examples/llm-suite-deepseek.json) | DeepSeek 原厂 Chat Completions，`deepseek-flash` | `max_tokens`，包含思考和正文 |
+| [`llm-suite-gemini.json`](../examples/llm-suite-gemini.json) | Google Interactions，`gemini-3.8-flash` | `generation_config.max_output_tokens`，包含思考和正文 |
+| [`llm-suite-qwen.json`](../examples/llm-suite-qwen.json) | 百炼 Chat Completions，`qwen3.8-flash` | `max_completion_tokens`，包含思考和正文 |
+
+例如运行 DeepSeek 模板：
+
+```powershell
+$env:CORTICO_GENERALS_EVAL_DEEPSEEK_API_KEY = 'your-api-key'
+pnpm eval:llm --config examples/llm-suite-deepseek.json --out scratch/llm-deepseek-01
+```
+
+另外两个模板分别读取 `CORTICO_GENERALS_EVAL_GEMINI_API_KEY` 和 `CORTICO_GENERALS_EVAL_QWEN_API_KEY`。
+
+DeepSeek 原厂的 [`deepseek-flash` 当前指向 DeepSeek-V4.1-Flash-1017](https://api-docs.deepseek.com/quick_start/pricing/)。`thinking: "enabled"` 或 `"disabled"` 发送为原厂 `thinking.type`；`reasoningEffort` 支持 `none`、`low`、`high`、`max`，其中 `none` 禁用思考。官网还接受 `minimal` 映射到 `low`，`medium`、`xhigh` 映射到 `high`。原厂与托管服务的模型名和思考开关可能不同：百炼的 DeepSeek 使用 `enable_thinking`，不能直接照搬原厂模板。参数及工具续轮要求见 [Chat API](https://api-docs.deepseek.com/api/create-chat-completion/) 和[思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)。
+
+Qwen 模板使用中国北京地域的兼容地址；国际新加坡地址是 `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`。API key 必须与服务地域匹配。两者仍可用；已有 Workspace 专属地址可直接替换 `baseUrl`。`enableThinking`、`thinkingBudget`、`preserveThinking` 分别写入顶层 `enable_thinking`、`thinking_budget`、`preserve_thinking`。配置文件使用这些字段时无需包在 `extra_body` 中。
+
+Qwen3.8-Flash 的思考强度为 `low`、`medium`、`xhigh`；服务将 `minimal` 映射到 `low`，`high`、`max` 映射到 `xhigh`，`none` 关闭思考。`reasoningEffort` 与 `thinkingBudget` 不能同时设置。`thinkingBudget` 只限制思考 token；`max_completion_tokens` 限制思考与正文总和。Qwen 的旧 `max_tokens` 只限制正文，不能用作总输出上限。模板启用 `preserveThinking`，工具续轮通过独立的 `reasoning_content` 字段回传历史思考。详见百炼 [Chat 参数参考](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions)和[思考模式](https://www.alibabacloud.com/help/en/model-studio/deep-thinking)。
+
+Gemini3.8-Flash 模板使用原生 Interactions API。`reasoningEffort` 设置 `generation_config.thinking_level`，`maxOutputTokens` 设置 `generation_config.max_output_tokens`；无需设置 Chat Completions 专用的 `maxTokensParameter`。请求使用 `store: false`，由本地保留完整 `steps`、工具调用及思考签名。服务将正文和思考用量分别报告为 `total_output_tokens`、`total_thought_tokens`，评测汇总的 `outputTokens` 取两者之和。参数及续轮格式见 [Interactions API](https://ai.google.dev/api/interactions-api)、[思考配置](https://ai.google.dev/gemini-api/docs/thinking)和[工具调用](https://ai.google.dev/gemini-api/docs/function-calling)。
+
+模板不证明账号拥有对应模型权限，也未执行真实服务调用。更换托管服务时，应同时核对 API 协议、模型名、思考选项和输出 token 字段。
 
 CLI 可用 `--mode scripted|llm`、`--suite all|snapshots|games` 覆盖配置，`--help` 显示用法。真实模型推荐使用 `realtime` 和 `tickMs: 500`，让请求耗时表现为游戏内经过的 turn；`paused` 会在每轮 S2 对话期间暂停裁判，适合单独检查决策，不用于评价实时表现。
-
-Chat Completions 使用 `max_tokens`；只接受 `max_completion_tokens` 的端点需要使用 Responses 或另行适配。截断或未完成的响应记为模型错误，不执行其中的工具调用。
 
 ## 局面与对照
 
