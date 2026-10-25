@@ -1,4 +1,4 @@
-Owner: [`src/proxy.ts`](../src/proxy.ts), [`src/engine-child.ts`](../src/engine-child.ts), [`src/agent/`](../src/agent/) and [`tests/agent/arena.ts`](../tests/agent/arena.ts).
+Owner: [`src/proxy.ts`](../src/proxy.ts), [`src/engine-child.ts`](../src/engine-child.ts), [`src/world.ts`](../src/world.ts), [`src/agent/`](../src/agent/) and [`tests/agent/arena.ts`](../tests/agent/arena.ts).
 
 # Engine and S1 architecture
 
@@ -12,6 +12,9 @@ The World definition creates `GeneralsWorldProxy`. The proxy forwards tools, con
 
 Both manual movement and S1 use `agent/executor.ts` for the ordered transport, increasing attack indices, local cursor and pending-arrow ledger. `agent/contracts.ts` separates authoritative observations, decisions, actions, feedback and versioned strategic intents. The S1 policy has no model calls; S2 is an optional role performed by the host model through World tools.
 
+## Experimental multiplayer admission
+
+This branch relaxes `assertAgentRules` in `src/world.ts` so a confirmed multiplayer game can be delegated; the S1 policy, the environment prompt and the S2 intent contract are unchanged from `6feaa73`. The admission conditions and the reported `supportedRules` value are in [the control contract](contracts.md#control-and-strategic-intents). The policy keeps its two-player assumptions: `analysis.ts` collects every non-self owner into one enemy set, there is no opponent focus, `intent.ts` still limits `attack_general` to `player` `0` or `1`, and the in-repo arena remains two-player.
 ## Decision and search budgets
 
 S1 evaluates new server turns, sends at most one next step and observes feedback before continuing. Decisions identify the game, control epoch and map revision; stale decisions are rejected. `generals_agent_status`, also included in observations, reports `bounded_rule_search`, the last decision, search cost, pending action and last feedback. `agent.decisionBudgetMs` and `agent.maxSearchNodes` bound search; exhausted searches use completed candidates or the disclosed one-step fallback, marked by `lastDecision.search.fallback`. Candidate scores and arrival estimates are policy choices and projections, not observed outcomes.

@@ -21,7 +21,7 @@ function decision(reason = 'no_unmet_home_arrival;deadline_turn:none'): AgentDec
 
 function status(): AgentReport {
   return { gameId: 'brief-game', controlEpoch: 2, control: 'autonomous', operatorPaused: false, operatorPauseLinked: false, phase: 'playing',
-    observedTurn: 100, method: 'bounded_rule_search', activeIntentRevision: null, supportedRules: 'standard_or_city_state_1v1',
+    observedTurn: 100, method: 'bounded_rule_search', activeIntentRevision: null, supportedRules: 'experimental_pre_ffa_multiplayer',
     error: null, lastDecision: decision(), pendingAction: null, lastFeedback: null,
     intent: { active: null, status: 'autonomous', reason: null, lastRevision: 0, lastRejection: null } };
 }

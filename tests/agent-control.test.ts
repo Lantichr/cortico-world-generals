@@ -205,7 +205,6 @@ describe('Generals S1 control over the local protocol', () => {
   it.each([
     { options: { modifiers: [2] } },
     { options: { map: 'custom' } },
-    { usernames: ['[Bot] Fixture', 'Opponent', 'Third'] },
     { teams: [0, 0] },
   ])('stops unsupported automatic games before sending attacks: %j', async (start) => {
     await call('start_agent', { room: 'fixture' });
@@ -213,6 +212,58 @@ describe('Generals S1 control over the local protocol', () => {
     await frame(1);
     expect(await read()).toMatchObject({ control: 'manual', error: expect.any(String) });
     expect(attacks()).toHaveLength(0);
+  });
+
+  describe('experimental multiplayer admission', () => {
+    const usernames = ['[Bot] Fixture', 'Alpha', 'Beta', 'Gamma'];
+    const teams = [0, 1, 2, 3];
+    // The local player holds the highest index and the left column with its general.
+    const ffaArmies = [20, 0, 4, 0, 0, 0, 4, 0, 4];
+    const ffaOwners = [3, 3, 1, -1, -1, -1, 2, -1, 0];
+    const ffaGenerals = [8, 2, 6, 0];
+    const ffaScores = [0, 1, 2, 3].map((i) => ({ i, total: i === 3 ? 20 : 4, tiles: i === 3 ? 2 : 1 }));
+
+    async function ffaStart(playerIndex: number, seatTeams: number[] = teams): Promise<void> {
+      send('game_start', { playerIndex, usernames, teams: seatTeams });
+      await waitFor(async () => (await read()).phase === 'playing');
+    }
+    async function ffaFrame(turn: number, extra: Record<string, unknown> = {}): Promise<void> {
+      const map = [3, 3, ...ffaArmies, ...ffaOwners];
+      send('game_update', { turn, map_diff: [0, map.length, ...map], cities_diff: [0, 0],
+        generals: ffaGenerals, scores: ffaScores, ...extra });
+      await waitFor(async () => (await read()).observedTurn === turn);
+    }
+
+    it('delegates a four-player game whose local player sits at the highest index', async () => {
+      await call('start_agent', { room: 'fixture' });
+      await ffaStart(3);
+      expect(await read()).toMatchObject({ control: 'autonomous', error: null, supportedRules: 'experimental_pre_ffa_multiplayer' });
+      await ffaFrame(1);
+      await waitFor(() => attacks().length > 0);
+      expect(await read()).toMatchObject({ control: 'autonomous', error: null, pendingAction: { observedTurn: 1 } });
+    });
+
+    it('keeps a standard two-player game delegatable', async () => {
+      await delegate();
+      expect(await read()).toMatchObject({ control: 'autonomous', error: null, supportedRules: 'experimental_pre_ffa_multiplayer' });
+    });
+
+    it('rejects a multiplayer game whose seats repeat an assigned team number', async () => {
+      await call('start_agent', { room: 'fixture' });
+      await ffaStart(3, [0, 1, 1, 3]);
+      await ffaFrame(1);
+      expect(await read()).toMatchObject({ control: 'manual', error: expect.stringContaining('allied transfers') });
+      expect(attacks()).toHaveLength(0);
+    });
+
+    it('admits a game whose unassigned seats repeat -1 and still sends an attack', async () => {
+      await call('start_agent', { room: 'fixture' });
+      await ffaStart(3, [-1, -1, 2, 3]);
+      expect(await read()).toMatchObject({ control: 'autonomous', error: null, supportedRules: 'experimental_pre_ffa_multiplayer' });
+      await ffaFrame(1);
+      await waitFor(() => attacks().length > 0);
+      expect(attacks()[0][4]).toBe(1);
+    });
   });
 
   it('invalidates a pending move when its source changes owner with an unchanged army count', async () => {

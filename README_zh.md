@@ -1,4 +1,4 @@
-Owner: [`src/definition.ts`](src/definition.ts)、[`src/config.ts`](src/config.ts) 与 [`src/proxy.ts`](src/proxy.ts)。
+Owner: [`src/definition.ts`](src/definition.ts)、[`src/config.ts`](src/config.ts)、[`src/proxy.ts`](src/proxy.ts)、[`src/world.ts`](src/world.ts) 与 [`src/agent/contracts.ts`](src/agent/contracts.ts)。
 
 # cortico-world-generals
 
@@ -8,15 +8,19 @@ Owner: [`src/definition.ts`](src/definition.ts)、[`src/config.ts`](src/config.t
 
 此候选版面向 **Cortico 0.2.3 / World API 6**。原版宿主可使用手动工具、观战与自主 S1；[操作者暂停联动](docs/host-compatibility.md)为可选能力。玩家通过 `bot.generals.io` 加入 Bot Server 房间。
 
+> **实验分支，不是发布版。** 它在 `6feaa73` 基线上增加实验性的最小 FFA 准入。S1 策略、环境提示词与 S2 意图契约未改，`attack_general.player` 仍只接受 `0` 或 `1`，且不能是本地玩家编号。这不是完整的 FFA 策略；准确的准入条件与 `supportedRules` 取值见[工具契约](docs/contracts.md#control-and-strategic-intents)。
+
 ## 运行条件
 
 - 支持 World API 6 的 Cortico 宿主，Node.js 22.15 或更新版本。
 - Bot Server 的私有账号标识，且可连接 `botws.generals.io`。
-- 使用 S1 时，房间为常规或 City-State 1v1。
+- 使用 S1 时，房间为已确认的常规或 City-State，且至少两个座位。
 
 World id 为 `generals`，宿主不能包含同 id 的内建注册，仅设 `enabled=false` 无法解除冲突。使用 World API 5 的宿主需先升级到 API 6 再安装本包。迁移步骤见[兼容说明](docs/host-compatibility.md)；保留 `worlds.generals` 配置、部署 `.env` 与 Memory。
 
 ## 安装
+
+> **`@next` 不是本分支。** 安装 `cortico-world-generals@next` 不会得到实验准入。要使用本分支，检出 `codex/6feaa73-minimal-ffa`，在该目录运行 `pnpm install`，再按本机扩展方式安装该目录；安装后重启宿主进程。
 
 发布后，在 Cortico 的扩展页面安装 `cortico-world-generals@next`。也可以在 **Cortico 宿主的扩展目录**运行（默认 `extensions/`，设置了 `CORTICO_EXTENSIONS_DIR` 时使用该路径）：
 
@@ -62,7 +66,7 @@ corepack pnpm add --ignore-workspace cortico-world-generals@next
 
 ## 能力边界
 
-- 默认 `manual`，自主游戏需显式调用 `generals_start_agent`。S1 只支持已确认的常规与 City-State 1v1；不支持的规则、队友转移或隧道会停止自主控制。
+- 默认 `manual`，自主游戏需显式调用 `generals_start_agent`。准入为实验性放宽：两名及以上座位、任意本地玩家编号；准确条件见[工具契约](docs/contracts.md#control-and-strategic-intents)。隧道和已知不支持的房间规则仍会停止自主控制。
 - 未接入可选暂停联动时，宿主全局暂停不会停止 S1。用 `generals_stop_agent` 撤销委托并请求清队列，或停用 World。远端对局继续，已处理的移动不能撤回。
 - 断线不自动重连。重启 World 不恢复房间、开始票、委托或战略意图。
 - 当前事实、最后可见事实和策略估计分开记录；不会根据历史数据刷新迷雾兵力。

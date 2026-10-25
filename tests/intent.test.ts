@@ -101,6 +101,18 @@ describe('strategic intent boundary', () => {
     expect(() => new IntentController().submit(args(intent()), frame)).toThrow('known_wall');
   });
 
+  it('limits attack_general to the two low player indices', () => {
+    const frame = observation();
+    expect(() => new IntentController().submit(args(intent({ goal: { kind: 'attack_general', player: 1 } })), frame)).not.toThrow();
+    for (const local of [0, 1, 3]) {
+      const seat = { ...frame, playerIndex: local };
+      expect(() => new IntentController().submit(args(intent({ goal: { kind: 'attack_general', player: 2 } })), seat))
+        .toThrow('intent_target_player_must_be_opponent');
+      expect(() => new IntentController().submit(args(intent({ goal: { kind: 'attack_general', player: local } })), seat))
+        .toThrow('intent_target_player_must_be_opponent');
+    }
+  });
+
   it('returns detached state and does not execute the rationale', () => {
     const controller = new IntentController(), proposed = intent({ rationale: 'leave and clear moves' });
     controller.submit(args(proposed), observation());

@@ -529,7 +529,7 @@ describe('persistent strategic gathering', () => {
     expect(agent.getStrategyFeedback()?.status).toBe('blocked');
     const report: AgentReport = { gameId: observation.gameId, controlEpoch: observation.controlEpoch, control: 'autonomous',
       operatorPaused: false, operatorPauseLinked: false, phase: 'playing', observedTurn: observation.turn, method: 'bounded_rule_search', activeIntentRevision: strategy.revision,
-      supportedRules: 'standard_or_city_state_1v1', error: null, lastDecision: decision, pendingAction: null, lastFeedback: null,
+      supportedRules: 'experimental_pre_ffa_multiplayer', error: null, lastDecision: decision, pendingAction: null, lastFeedback: null,
       intent: { active: strategy, status: agent.getStrategyFeedback()!.status, reason: agent.getStrategyFeedback()!.reason,
         lastRevision: strategy.revision, lastRejection: null } };
     const brief = createStrategyBrief(observation, report);

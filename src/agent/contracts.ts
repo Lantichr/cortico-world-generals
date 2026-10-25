@@ -115,7 +115,7 @@ export interface AgentReport {
   method: 'bounded_rule_search';
   activeIntentRevision: number | null;
   intent: StrategyIntentState;
-  supportedRules: 'standard_or_city_state_1v1';
+  supportedRules: 'experimental_pre_ffa_multiplayer';
   error: string | null;
   lastDecision: AgentDecision | null;
   pendingAction: AgentAction | null;

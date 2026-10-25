@@ -1,4 +1,4 @@
-Owner: [`src/definition.ts`](src/definition.ts), [`src/config.ts`](src/config.ts) and [`src/proxy.ts`](src/proxy.ts).
+Owner: [`src/definition.ts`](src/definition.ts), [`src/config.ts`](src/config.ts), [`src/proxy.ts`](src/proxy.ts), [`src/world.ts`](src/world.ts) and [`src/agent/contracts.ts`](src/agent/contracts.ts).
 
 # cortico-world-generals
 
@@ -8,15 +8,19 @@ A [Cortico](https://github.com/Pal-AI-Lab/Cortico) World for the generals.io Bot
 
 This release candidate targets **Cortico 0.2.3, World API 6**. Manual tools, the viewer and autonomous S1 work with the unmodified host. [Operator-pause integration](docs/host-compatibility.md) is optional. The package uses the Bot Server, with human players joining at `bot.generals.io`.
 
+> **Experimental branch, not a release.** It adds experimental minimal free-for-all admission to the `6feaa73` baseline. The S1 policy, the environment prompt and the S2 intent contract are unchanged, and `attack_general.player` still accepts only `0` or `1` and never the local player index. It is not a complete free-for-all policy; the exact admission conditions and the reported `supportedRules` value are in [the control contract](docs/contracts.md#control-and-strategic-intents).
+
 ## Requirements
 
 - A Cortico host supporting World API 6, with Node.js 22.15 or later.
 - A private Bot Server account identifier and network access to `botws.generals.io`.
-- For S1: a standard or City-State 1v1 room.
+- For S1: a confirmed standard or City-State room with two or more seats.
 
 The World id is `generals`. The host must not contain an in-tree registration with the same id; setting that World's `enabled=false` does not remove the registration. Hosts using World API 5 must upgrade to an API 6 host before installing this package. See [host compatibility](docs/host-compatibility.md) for migration; retain `worlds.generals`, the deployment `.env` and Memory.
 
 ## Install
+
+> **`@next` is not this branch.** Installing `cortico-world-generals@next` does not give you the experimental admission. To use this branch, check out `codex/6feaa73-minimal-ffa`, run `pnpm install` there, and install that directory as a local extension; restart the host afterwards.
 
 After the release is published, use Cortico's extension page to install `cortico-world-generals@next`, or run this **inside the Cortico host's extension directory** (`extensions/`, or the path set by `CORTICO_EXTENSIONS_DIR`):
 
@@ -60,7 +64,7 @@ The read-only viewer listens on `127.0.0.1`. It shows the current fog view, play
 
 ## Boundaries
 
-- S1 supports confirmed standard and City-State 1v1 rules. Unsupported rules, allied transfers and tunnels stop autonomous control.
+- S1 admission is experimental and relaxed to two or more seats at any local player index; the exact conditions are in [the control contract](docs/contracts.md#control-and-strategic-intents). Tunnels and known unsupported room rules still stop autonomous control.
 - Without optional pause integration, the host's global pause leaves S1 running. Use `generals_stop_agent` to revoke delegation and request queue clearing, or deactivate the World. The remote game continues; processed moves cannot be recalled.
 - There is no automatic reconnection. Restarting the World creates a fresh connection without restoring the room, start vote, delegation or intent.
 - Current observations, last-seen facts and policy estimates have separate meanings. Hidden armies are not refreshed from history.
