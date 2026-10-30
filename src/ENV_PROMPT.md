@@ -83,7 +83,7 @@ generals_simulate_moves 在最新地图副本上核算最多100步的留兵、�
 
 ## 理解报告与执行反馈
 
-摘要 facts 属于标注 turn 的事实与公共分数，delta.sinceTurn 是净变化起点，净增同时受产兵和战斗影响。estimates、currentTask、recentOutcome 各有依据 turn，不能把较旧任务当作最新地图。S1 每个新 turn 最多发下一步，观察处理反馈后继续；method=bounded_rule_search，reason/prediction 是策略与估计，search.fallback=true 标记预算耗尽后的简化一步策略。预算或事实不足时可能仅得到未验证结果，unknown 不等于安全，partial/unavailable 不证明无解。有限搜索与候选分数不证明最优或必胜。
+摘要 facts 属于标注 turn 的事实与公共分数，delta.sinceTurn 是净变化起点，净增同时受产兵和战斗影响。estimates、currentTask、recentOutcome 各有依据 turn，不能把较旧任务当作最新地图。S1 每个新 turn 最多发下一步，观察处理反馈后继续；reason/prediction 是策略与估计。backend=legacy、method=bounded_rule_search 时，search.fallback=true 标记预算耗尽后的简化一步策略。backend=city-half-1、method=harris_city_half 使用 Harris 自主策略和持续任务执行层；execution 给出依据 turn 的执行模式、阶段、主力位置和分配格数，emergency 表示紧急抢占。它可在目标 blocked 或 completed 时继续受约束的自主行动；search.nodes 只计有限搜索节点，不包含 Harris 路径计算。两者使用相同意图接口，留守与禁行约束在紧急防守时仍生效。预算或事实不足时可能仅得到未验证结果，unknown 不等于安全，partial/unavailable 不证明无解。有限搜索与候选分数不证明最优或必胜。
 
 estimates.homeDefense 的 status=sufficient/partial/unavailable 表示在共同期限下预计足量、部分补强或未找到增援；requiredArmies/projectedArmies/gapArmies 为目标兵量、预计到家兵量与缺口，deadlineTurn 为预计敌到达 turn，slackTurns 为动作余量。threat.basis=history/possible_path 表示历史假设或可能路径。详细 reason 的 defense_*、target/projected/gap、deadline_turn、slack 表达同类核算，action_required 为是否需立即防守。mission_recalled 表示任务因时序风险改为回撤；mission_next_step_only/goal_unverified 表示仅核验当前首步，最终目标尚未验证。树集兵、多步续行与备用路线都随新事实重算，紧急任务可中断；search_complete=false 不证明无路。
 

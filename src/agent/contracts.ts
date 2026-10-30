@@ -34,6 +34,7 @@ export interface AgentObservation {
   tiles: AgentTile[];
   history: Array<AgentHistory | null>;
   generals: number[];
+  cities?: number[];
   scores: unknown[];
   playerLifecycle?: AgentPlayerLifecycle[];
 }
@@ -43,9 +44,18 @@ export interface AgentOptions {
   maxSearchNodes: number;
 }
 
-export type AgentTaskKind = 'defend' | 'intercept' | 'capture_general' | 'capture_city' | 'gather' | 'expand' | 'scout' | 'wait';
+export type AgentTaskKind = 'auto' | 'defend' | 'intercept' | 'capture_general' | 'capture_city' | 'gather' | 'expand' | 'scout' | 'wait';
+
+/** Backend-reported execution state, dated by the enclosing decision's observedTurn. */
+export interface AgentExecution {
+  mode: string;
+  phase: string;
+  mainTile: number | null;
+  allocatedTiles: number;
+}
 
 interface DecisionBase {
+  execution?: AgentExecution;
   focus?: { player: number | null; reason: string };
   gameId: string;
   controlEpoch: number;
@@ -123,7 +133,8 @@ export interface AgentReport {
   operatorPauseLinked: boolean;
   phase: string;
   observedTurn: number | null;
-  method: 'bounded_rule_search';
+  backend?: 'legacy' | 'city-half-1';
+  method: 'bounded_rule_search' | 'harris_city_half';
   activeIntentRevision: number | null;
   intent: StrategyIntentState;
   supportedRules: 'standard_or_city_state_1v1' | 'standard_or_city_state_ffa';

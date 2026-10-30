@@ -6,7 +6,14 @@ export interface GeneralsConfigSection {
   connectTimeoutMs: number;
   snapshotIntervalMs: number;
   viewer: { enabled: boolean; port: number };
-  agent: { decisionBudgetMs: number; maxSearchNodes: number; reportIntervalMs: number };
+  agent: {
+    backend: 'legacy' | 'city-half-1';
+    pythonExecutable: string;
+    pythonTimeoutMs: number;
+    decisionBudgetMs: number;
+    maxSearchNodes: number;
+    reportIntervalMs: number;
+  };
 }
 
 export const GENERALS_SECRET = 'CORTICO_GENERALS_USER_ID';
@@ -16,7 +23,8 @@ export const GENERALS_DEFAULTS: GeneralsConfigSection = {
   connectTimeoutMs: 15_000,
   snapshotIntervalMs: 2000,
   viewer: { enabled: true, port: 0 },
-  agent: { decisionBudgetMs: 50, maxSearchNodes: 4000, reportIntervalMs: 10_000 },
+  agent: { backend: 'legacy', pythonExecutable: 'python', pythonTimeoutMs: 5000,
+    decisionBudgetMs: 50, maxSearchNodes: 4000, reportIntervalMs: 10_000 },
 };
 
 export const GENERALS_CONFIG_GROUP: ConfigGroup = {
@@ -45,10 +53,23 @@ export const GENERALS_CONFIG_GROUP: ConfigGroup = {
       },
       'worlds.generals.agent.decisionBudgetMs': {
         type: 'integer', title: 'S1 决策预算（毫秒）', minimum: 1, maximum: 200, 'x-hot': false,
-        description: '搜索达到预算时使用已完成候选或简化策略；重启 World 生效。',
+        description: '仅 legacy 后端；搜索达到预算时使用已完成候选或简化策略；重启 World 生效。',
       },
       'worlds.generals.agent.maxSearchNodes': {
         type: 'integer', title: 'S1 搜索节点上限', minimum: 1, maximum: 100_000, 'x-hot': false,
+        description: '仅 legacy 后端；city-half-1 使用随版本固定的内部搜索上限。',
+      },
+      'worlds.generals.agent.backend': {
+        type: 'string', enum: ['legacy', 'city-half-1'], title: 'S1 后端', 'x-hot': false,
+        description: 'city-half-1 使用随包提供的 Harris 策略和 S2 执行层，需要 Python 3.10+；重启 World 生效。',
+      },
+      'worlds.generals.agent.pythonExecutable': {
+        type: 'string', title: 'Python 可执行文件', 'x-hot': false,
+        description: '仅 city-half-1；可填命令名或完整路径，不含命令行参数。无需 pip 依赖。',
+      },
+      'worlds.generals.agent.pythonTimeoutMs': {
+        type: 'integer', minimum: 100, maximum: 60_000, title: 'Python 请求超时（毫秒）', 'x-hot': false,
+        description: '包括初始化；超时会停止 S1 并报告错误，不会切换后端。过期帧的结果不会发送。',
       },
       'worlds.generals.agent.reportIntervalMs': {
         type: 'integer', title: 'S2 战略报告间隔（毫秒）', minimum: 1000, maximum: 60_000, 'x-hot': false,

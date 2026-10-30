@@ -13,6 +13,7 @@ Owner: [`src/definition.ts`](src/definition.ts)、[`src/config.ts`](src/config.t
 - 支持 World API 6 的 Cortico 宿主，Node.js 22.15 或更新版本。
 - Bot Server 的私有账号标识，且可连接 `botws.generals.io`。
 - 使用 S1 时，房间为常规或 City-State 的 1v1 / FFA，无正式组队。
+- 选用 city-half-1 后端时需要 Python 3.10+，无需 pip 依赖。
 
 World id 为 `generals`，宿主不能包含同 id 的内建注册，仅设 `enabled=false` 无法解除冲突。使用 World API 5 的宿主需先升级到 API 6 再安装本包。迁移步骤见[兼容说明](docs/host-compatibility.md)；保留 `worlds.generals` 配置、部署 `.env` 与 Memory。
 
@@ -53,6 +54,10 @@ corepack pnpm add --ignore-workspace cortico-world-generals@next
 上面的示例是工具名及参数对象，宿主向 Persona 提供这些工具，没有单独的游戏命令行。
 
 ## 观战与配置
+
+S1 默认后端为 `legacy`。将 `worlds.generals.agent.backend` 设置为 `city-half-1`，
+重启 World 后即可使用随包提供的 Harris 策略和 S2 执行层，工具调用方式不变。
+Python 配置、状态字段与迁移方法见 [city-half-1 接入说明](docs/city-half.md)。
 
 画面只监听 `127.0.0.1`，显示当前视野、配色、兵力、本地白框、已发送箭头和 S1 规划。白框跟随最近提交的目的格，Bot API 不提供真人客户端的选中状态。箭头收到处理序号后消失，不代表移动或战斗成功。
 

@@ -27,6 +27,10 @@ const required = [
   'src/index.ts', 'src/definition.ts', 'src/config.ts', 'src/world.ts', 'src/proxy.ts',
   'src/engine-child.ts', 'src/engine-ipc.ts', 'src/ENV_PROMPT.md',
   'src/agent/agent.ts', 'src/viewer/server.ts', 'src/viewer/contracts.ts',
+  'src/agent/city-half.ts', 'src/agent/python-channel.ts', 'src/agent/city-half/adapter.py',
+  'src/agent/city-half/backend.py', 'src/agent/city-half/native_candidate.py', 'src/agent/city-half/rpc.py',
+  'src/agent/city-half/vendor/LICENSE', 'src/agent/city-half/vendor/bot_blob.py',
+  'compat/migrate-city-half.mjs',
   'src/viewer/web/index.html', 'src/viewer/web/app.js', 'src/viewer/web/styles.css',
   'docs/host-compatibility.md', 'docs/releasing.md', 'compat/host-operator-pause.patch',
 ];
@@ -62,7 +66,7 @@ async function until(predicate: () => boolean | Promise<boolean>): Promise<void>
   }
 }
 
-async function smoke(definition: WorldDefinition<GeneralsConfigSection>): Promise<void> {
+async function smoke(definition: WorldDefinition<GeneralsConfigSection>, backend: GeneralsConfigSection['agent']['backend']): Promise<void> {
   const protocol = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   const packets: unknown[][] = [];
   let peer: WebSocket | undefined;
@@ -83,6 +87,7 @@ async function smoke(definition: WorldDefinition<GeneralsConfigSection>): Promis
     context.cfg.connectTimeoutMs = 5000;
     context.cfg.snapshotIntervalMs = 0;
     context.cfg.viewer = { enabled: true, port: 0 };
+    context.cfg.agent = { ...context.cfg.agent, backend };
     context.secret = () => 'package-smoke-account';
     const store = new JsonlEventStore({ dataDir: join(temporary, 'events'), run: 'r-20260101-000000-package' });
     const host: WorldHost = {
@@ -162,16 +167,30 @@ async function smoke(definition: WorldDefinition<GeneralsConfigSection>): Promis
       turn: 2, map_diff: [0, agentMap.length, ...agentMap], cities_diff: [0, 0], generals: [0, 2], attackIndex: 1,
       scores: [{ i: 0, total: 20, tiles: 1 }, { i: 1, total: 0, tiles: 1 }],
     });
+    if (backend === 'city-half-1') {
+      await until(async () => JSON.parse(await call('agent_status') as string).lastDecision?.observedTurn === 2);
+      const status = JSON.parse(await call('agent_status') as string);
+      assert.equal(status.method, 'harris_city_half');
+      await call('set_intent', { gameId: status.gameId, controlEpoch: status.controlEpoch, revision: 1,
+        basedOnTurn: 2, expiresTurn: 100, goal: { kind: 'expand' }, constraints: {} });
+      send('game_update', {
+        turn: 3, map_diff: [0, agentMap.length, ...agentMap], cities_diff: [0, 0], generals: [0, 2], attackIndex: 1,
+        scores: [{ i: 0, total: 20, tiles: 1 }, { i: 1, total: 0, tiles: 1 }],
+      });
+    }
     await until(() => attacks() > manualAttacks);
-    assert.equal(JSON.parse(await call('agent_status') as string).operatorPauseLinked, false);
+    const activeStatus = JSON.parse(await call('agent_status') as string);
+    assert.equal(activeStatus.operatorPauseLinked, false);
+    assert.equal(activeStatus.backend, backend);
+    if (backend === 'city-half-1') assert.equal(activeStatus.intent.status, 'following');
     await call('stop_agent');
     assert.equal(JSON.parse(await call('agent_status') as string).control, 'manual');
     const stoppedAttacks = attacks();
     send('game_update', {
-      turn: 3, map_diff: [0, agentMap.length, ...agentMap], cities_diff: [0, 0], generals: [0, 2], attackIndex: 2,
+      turn: 4, map_diff: [0, agentMap.length, ...agentMap], cities_diff: [0, 0], generals: [0, 2], attackIndex: 2,
       scores: [{ i: 0, total: 20, tiles: 1 }, { i: 1, total: 0, tiles: 1 }],
     });
-    await until(async () => JSON.parse(await call('observe') as string).view.turn === 3);
+    await until(async () => JSON.parse(await call('observe') as string).view.turn === 4);
     assert.equal(attacks(), stoppedAttacks, 'Revoking S1 must stop autonomous moves without pause integration');
     assert.ok(!store.range({ source: 'generals' }).some((event) => event.text.includes('package-smoke-account')),
       'Account credentials must not appear in events');
@@ -218,8 +237,9 @@ try {
   assert.deepEqual(described.failures, []);
   assert.deepEqual(described.warnings, []);
   assert.ok(existsSync(join(packedRoot, 'src/ENV_PROMPT.md')));
-  await smoke(definition);
-  console.log(`${manifest.name}@${manifest.version}: npm tarball, dry mount, engine, manual move, unpatched-host S1, viewer and SSE passed`);
+  await smoke(definition, 'legacy');
+  await smoke(definition, 'city-half-1');
+  console.log(`${manifest.name}@${manifest.version}: npm tarball, dry mount, engine, both S1 backends, S2 intent, manual move, viewer and SSE passed`);
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }

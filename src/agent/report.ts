@@ -36,6 +36,8 @@ interface PolicyEstimate {
 
 /** Facts retain their observation turn; policy estimates and processing feedback have independent dates. */
 export interface StrategyBrief {
+  backend?: AgentReport['backend'];
+  execution?: { mode: string; phase: string; main: Position | null; allocatedTiles: number; basedOnTurn: number };
   focus?: { player: number | null; reason: string };
   gameId: string | null;
   controlEpoch: number;
@@ -195,6 +197,10 @@ export function createStrategyBrief(observation: AgentObservation | null, status
   const generals = allGenerals.filter((general) => ranks.has(general.player)).sort((a, b) => ranks.get(a.player)! - ranks.get(b.player)!);
   const lifecycle = current?.playerLifecycle ?? [];
   return { ...(ffa && decision?.focus ? { focus: { ...decision.focus } } : {}),
+    ...(status.backend ? { backend: status.backend } : {}),
+    ...(decision?.execution ? { execution: { mode: decision.execution.mode, phase: decision.execution.phase,
+      main: position(current, decision.execution.mainTile), allocatedTiles: decision.execution.allocatedTiles,
+      basedOnTurn: decision.observedTurn } } : {}),
     gameId: status.gameId, controlEpoch: status.controlEpoch, turn: current?.turn ?? status.observedTurn,
     playerIndex: current?.playerIndex ?? null,
     phase: status.phase, control: status.control, operatorPaused: status.operatorPaused, operatorPauseLinked: status.operatorPauseLinked,

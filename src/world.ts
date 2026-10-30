@@ -9,6 +9,7 @@ import { GENERALS_MOVE_SCHEMA, GENERALS_TILE_SCHEMA, describeFilteredRoutes, par
 import { createSimulationBoard, simulateMoves } from './simulation.ts';
 import { GENERALS_ANALYSIS_LIMITS, parseGatherOptions, planGather } from './planning.ts';
 import { GeneralsAgent } from './agent/agent.ts';
+import { CityHalfAgent } from './agent/city-half.ts';
 import { MoveExecutor } from './agent/executor.ts';
 import type { AgentAction, AgentDecision, AgentFeedback, AgentObservation, AgentReport } from './agent/contracts.ts';
 import { checkStrategyMove } from './agent/strategy.ts';
@@ -37,6 +38,8 @@ export class GeneralsWorld implements World {
   private lastSnapshotAtMs = -Infinity;
   private readonly executor: MoveExecutor;
   private readonly agent: GeneralsAgent;
+  private readonly cityHalf: CityHalfAgent | null;
+  private cityStep: Promise<void> | null = null;
   private lastAfkWarning: Record<string, unknown> | null = null;
   private scoreWarnAfk = false;
   private gameId: string | null = null;
@@ -71,6 +74,10 @@ export class GeneralsWorld implements World {
     });
     this.executor = new MoveExecutor((name, ...args) => this.client.send(name, ...args), () => nowIso(this.timezone));
     this.agent = new GeneralsAgent(this.cfg.agent);
+    if (!['legacy', 'city-half-1'].includes(this.cfg.agent.backend)) throw new Error('Unsupported S1 backend');
+    if (!this.cfg.agent.pythonExecutable.trim() || !Number.isSafeInteger(this.cfg.agent.pythonTimeoutMs)
+      || this.cfg.agent.pythonTimeoutMs < 100 || this.cfg.agent.pythonTimeoutMs > 60_000) throw new Error('Invalid Python backend configuration');
+    this.cityHalf = this.cfg.agent.backend === 'city-half-1' ? new CityHalfAgent(this.cfg.agent) : null;
   }
 
   envPromptVars(): Record<string, string> { return {}; }
@@ -125,7 +132,7 @@ export class GeneralsWorld implements World {
       }
     } finally {
       try { await this.client.stop(); }
-      finally { await this.viewer.stop(); }
+      finally { await Promise.all([this.viewer.stop(), this.cityHalf?.close()]); }
     }
   }
 
@@ -135,7 +142,7 @@ export class GeneralsWorld implements World {
     this.operatorPaused = paused;
     this.controlEpoch++;
     this.intents.reset('invalidated', 'operator_pause_changed');
-    this.agent.reset();
+    this.resetAgent();
     this.agentLastTurn = this.state?.turn ?? -1;
     if (this.control === 'autonomous' && this.phase === 'playing' && this.client.connected) this.requestClear();
     this.reportAgent(true);
@@ -218,13 +225,13 @@ export class GeneralsWorld implements World {
         this.controlEpoch++;
         this.intents.reset('stopped', 'manual_takeover');
         this.agentForceStart = false;
-        this.agent.reset();
+        this.resetAgent();
         const clearRequested = this.phase === 'playing' && this.client.connected;
         if (clearRequested) this.requestClear();
         this.reportAgent(true);
         return { ...this.agentStatus(), clearRequested };
       }),
-      tool('agent_status', 'Read S1 control, game id, control epoch, active intent, revision ledger, intent outcome, current decision, search budget, pending action and observed feedback. Predictions are separate from server processing and map changes. Use strategy_brief for a compressed strategic view.', ['read'], {}, [], () => this.agentStatus()),
+      tool('agent_status', 'Read configured S1 backend and method, control, game id, control epoch, active intent, revision ledger, intent outcome, current decision and backend execution state, search cost, pending action and observed feedback. Predictions are separate from server processing and map changes. Use strategy_brief for a compressed strategic view.', ['read'], {}, [], () => this.agentStatus()),
       tool('strategy_brief', 'Read a compressed current strategic report: intent and revision anchors, constraint counts, public scores and dated changes, own cities, largest visible forces, general sightings, task, conditional estimates and last action feedback. Read agent_status for the complete intent before replacing constraints. No full map or search tree. Historical armies remain dated history. S1 keeps acting while S2 thinks.', ['read'], {}, [], () => this.strategyBrief()),
       tool('set_intent', 'Give autonomous S1 a versioned strategic goal, hard departure reserves and excluded route tiles, with optional preferences. Copy gameId/controlEpoch/turn and intent.lastRevision from a fresh strategy_brief. Set basedOnTurn to the observed turn and increase revision; expiresTurn is exclusive. Rejected requests preserve the active intent. Accepted changes apply to subsequent decisions; already sent actions cannot be recalled. Emergency tactics may preempt the goal within its hard constraints. Completion retains constraints until clear or expiry.', ['act'], STRATEGY_INTENT_PROPERTIES,
         ['gameId', 'controlEpoch', 'revision', 'basedOnTurn', 'expiresTurn', 'goal', 'constraints'], (args) => {
@@ -317,7 +324,7 @@ export class GeneralsWorld implements World {
       this.controlEpoch++;
       this.intents.reset();
       this.observationRevision = 0;
-      this.agent.reset();
+      this.resetAgent();
       this.agentLastTurn = -1;
       this.agentError = null;
       this.lastDecision = null;
@@ -365,7 +372,7 @@ export class GeneralsWorld implements World {
       this.intents.reset('stopped', this.phase);
       this.agentForceStart = false;
       this.pendingAction = null;
-      this.agent.reset();
+      this.resetAgent();
       this.revision++;
       this.emit('result', { outcome: this.phase, data: args[0] ?? null, view: this.mapView(false) });
       this.reportAgent(true);
@@ -488,7 +495,7 @@ export class GeneralsWorld implements World {
     this.agentForceStart = args.forceStart === true;
     this.agentVoted = false;
     this.agentError = null;
-    this.agent.reset();
+    this.resetAgent();
     this.agentLastTurn = this.state?.turn ?? -1;
     this.lastDecision = null;
     if (this.phase === 'playing') this.requestClear();
@@ -519,6 +526,7 @@ export class GeneralsWorld implements World {
     for (let index = 0; index < state.width * state.height; index++) {
       const tile = state.tile(index);
       if (tile.tunnelLimit !== null && tile.tunnelLimit !== 0) throw new Error('S1 does not support tunnels');
+      if (this.cityHalf && tile.terrain < -4) throw new Error('city-half-1 does not support special terrain');
     }
   }
 
@@ -546,7 +554,7 @@ export class GeneralsWorld implements World {
       playerIndex: state.playerIndex, turn: state.turn, width: state.width, height: state.height,
       tiles: Array.from({ length: state.width * state.height }, (_, index) => state.tile(index)),
       history: Array.from({ length: state.width * state.height }, (_, index) => state.lastSeen(index)),
-      generals: view.generals as number[], scores: view.scores as unknown[],
+      generals: view.generals as number[], cities: view.cities as number[], scores: view.scores as unknown[],
       playerLifecycle: state.playerLifecycle(),
     };
   }
@@ -559,7 +567,8 @@ export class GeneralsWorld implements World {
 
   private stepAgent(): void {
     const state = this.state;
-    if (this.control !== 'autonomous' || this.operatorPaused || !state || this.phase !== 'playing' || state.turn <= this.agentLastTurn) return;
+    if (this.control !== 'autonomous' || this.operatorPaused || !state || this.phase !== 'playing'
+      || this.cityStep || state.turn <= this.agentLastTurn) return;
     this.agentLastTurn = state.turn;
     try {
       this.assertAgentRules();
@@ -580,39 +589,71 @@ export class GeneralsWorld implements World {
         }
       }
       const intent = this.intents.snapshot();
+      if (this.cityHalf) {
+        const observation = this.agentObservation(), backend = this.cityHalf;
+        const isCurrentControl = () => this.control === 'autonomous' && !this.operatorPaused && this.phase === 'playing'
+          && this.gameId === observation.gameId && this.controlEpoch === observation.controlEpoch;
+        const pending = backend.decide(observation, intent).then(({ decision, feedback }) => {
+          if (!isCurrentControl()) return;
+          // Every move still has to match the current map and S2 revision at submission.
+          if (this.observationRevision !== observation.revision || this.intents.snapshot().lastRevision !== intent.lastRevision) return;
+          this.intents.feedback(feedback);
+          this.acceptAgentDecision(decision);
+        }).catch((error) => { if (isCurrentControl()) this.failAgent(error); }).finally(() => {
+          if (this.cityStep !== pending) return;
+          this.cityStep = null;
+          this.viewer.publish();
+          this.stepAgent();
+        });
+        this.cityStep = pending;
+        return;
+      }
       const decision = this.agent.decide(this.agentObservation(), intent.active, intent.status === 'completed');
       this.intents.feedback(this.agent.getStrategyFeedback());
-      this.lastDecision = decision;
-      this.lastDecisionIntentRevision = this.intents.snapshot().lastRevision;
-      if (decision.kind === 'move') {
-        const move = parseMove(decision.move, state.width, state.height);
-        const source = state.tile(move.from), target = state.tile(move.to);
-        if (source.owner !== state.playerIndex || source.armies === null || source.armies < 2
-          || target.terrain === -2 || state.lastSeen(move.to)?.terrain === -2) throw new Error('S1 decision violates current ownership, movable armies or known terrain');
-        const receipt = this.sendMoves([move], decision);
-        const attackIndex = receipt.moves[0]?.attackIndex;
-        if (attackIndex !== undefined) {
-          const action: AgentAction = {
-            actionId: `${this.gameId}:${this.controlEpoch}:${attackIndex}`, gameId: this.gameId!,
-            controlEpoch: this.controlEpoch, observedTurn: state.turn, attackIndex, ...move,
-          };
-          this.pendingAction = { action, sourceArmies: source.armies, targetArmies: target.armies, targetOwner: target.owner };
-          void this.host?.pushEvent({
-            type: 'generals.action', source: this.id, senderKey: this.id, ts: nowIso(this.timezone),
-            text: JSON.stringify({ action, decision }), meta: { action, decision },
-          }, { deliver: false }).catch((error) => this.host?.log.warn('Generals action archive failed', { error: String(error) }));
-        }
+      this.acceptAgentDecision(decision);
+    } catch (error) { this.failAgent(error); }
+  }
+
+  private acceptAgentDecision(decision: AgentDecision): void {
+    const state = this.state!;
+    this.lastDecision = decision;
+    this.lastDecisionIntentRevision = this.intents.snapshot().lastRevision;
+    if (decision.kind === 'move') {
+      const move = parseMove(decision.move, state.width, state.height);
+      const source = state.tile(move.from), target = state.tile(move.to);
+      if (source.owner !== state.playerIndex || source.armies === null || source.armies < 2
+        || target.terrain === -2 || state.lastSeen(move.to)?.terrain === -2) throw new Error('S1 decision violates current ownership, movable armies or known terrain');
+      const receipt = this.sendMoves([move], decision);
+      const attackIndex = receipt.moves[0]?.attackIndex;
+      if (attackIndex !== undefined) {
+        const action: AgentAction = {
+          actionId: `${this.gameId}:${this.controlEpoch}:${attackIndex}`, gameId: this.gameId!,
+          controlEpoch: this.controlEpoch, observedTurn: state.turn, attackIndex, ...move,
+        };
+        this.pendingAction = { action, sourceArmies: source.armies, targetArmies: target.armies, targetOwner: target.owner };
+        void this.host?.pushEvent({
+          type: 'generals.action', source: this.id, senderKey: this.id, ts: nowIso(this.timezone),
+          text: JSON.stringify({ action, decision }), meta: { action, decision },
+        }, { deliver: false }).catch((error) => this.host?.log.warn('Generals action archive failed', { error: String(error) }));
       }
-      this.reportAgent();
-    } catch (error) {
-      this.agentError = String(error);
-      this.control = 'manual';
-      this.controlEpoch++;
-      this.intents.reset('stopped', 'agent_error');
-      this.agent.reset();
-      this.requestClear();
-      this.reportAgent(true);
     }
+    this.reportAgent();
+  }
+
+  private failAgent(error: unknown): void {
+    this.agentError = String(error);
+    this.control = 'manual';
+    this.controlEpoch++;
+    this.intents.reset('stopped', 'agent_error');
+    this.resetAgent();
+    this.requestClear();
+    this.reportAgent(true);
+  }
+
+  private resetAgent(): void {
+    this.agent.reset();
+    this.cityHalf?.reset();
+    this.cityStep = null;
   }
 
   private agentStatus(): AgentReport {
@@ -625,7 +666,8 @@ export class GeneralsWorld implements World {
       gameId: this.gameId, controlEpoch: this.controlEpoch, control: this.control,
       operatorPaused: this.operatorPaused, operatorPauseLinked: this.operatorPauseLinked,
       phase: this.phase, observedTurn: this.state?.turn ?? null,
-      method: 'bounded_rule_search', activeIntentRevision: this.intents.snapshot().active?.revision ?? null,
+      backend: this.cfg.agent.backend, method: this.cityHalf ? 'harris_city_half' : 'bounded_rule_search',
+      activeIntentRevision: this.intents.snapshot().active?.revision ?? null,
       intent: this.intents.snapshot(),
       supportedRules: 'standard_or_city_state_ffa', error: this.agentError,
       lastDecision, pendingAction: this.pendingAction?.action ?? null,
@@ -680,7 +722,7 @@ export class GeneralsWorld implements World {
     this.agentForceStart = false;
     this.agentVoted = false;
     this.agentError = null;
-    this.agent.reset();
+    this.resetAgent();
     this.agentLastTurn = -1;
     this.lastDecision = null;
     this.lastFeedback = null;

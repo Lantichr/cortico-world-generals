@@ -4,6 +4,13 @@ Owner: [`src/world.ts`](../src/world.ts), [`src/state.ts`](../src/state.ts), [`s
 
 Tool descriptions and parameter schemas are declared by `GeneralsWorld.tools()`. Names begin with `generals_`; event types begin with `generals.`. The host exposes these tools to its Persona. The [operations guide](operations.md) covers setup, and the [architecture guide](architecture.md) describes S1 policy assumptions.
 
+Both configured S1 backends use these tools. Status includes `backend` and `method`;
+city-half-1 uses `harris_city_half`. Its last decision adds `execution` with mode, phase,
+main tile index and allocated tile count. The strategic brief converts the main tile to
+coordinates and dates execution by `basedOnTurn`. Task status and autonomous action can
+coexist: a blocked goal does not imply that the backend has stopped all movement.
+Backend behavior and operating requirements are in [city-half.md](city-half.md).
+
 | Purpose | Tools |
 | --- | --- |
 | Current connection and map | `generals_observe`, `generals_view_map` |

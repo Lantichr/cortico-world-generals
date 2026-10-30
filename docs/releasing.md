@@ -38,6 +38,11 @@ development tools, dependencies, account identifiers and deployment data stay ou
 Review the Git tree and the pack listing before publication. An initial repository should contain
 the extension's source history, without importing the parent framework's unrelated history.
 
+Checks require Python 3.10+ and run the packaged city-half-1 subprocess without pip dependencies.
+The tarball includes its Python policy, the required Harris source subset and MIT notice, and
+the configuration migration under `compat/`. `check:package` tests both S1 backends through
+the packaged engine, including an S2 intent, against a loopback protocol server.
+
 ## First npm publication
 
 Before publishing, confirm that the npm account can publish `cortico-world-generals`. No registry

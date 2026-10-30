@@ -16,8 +16,11 @@ All keys below are relative to `worlds.generals` in the deployment's `config.jso
 | `snapshotIntervalMs` | `2000` | Minimum interval between map events; observations still read every received frame. |
 | `viewer.enabled` | `true` | Start the loopback read-only viewer. |
 | `viewer.port` | `0` | Automatic local port; a nonzero value requests that fixed port. |
-| `agent.decisionBudgetMs` | `50` | Cooperative search time budget for each S1 decision, in milliseconds. |
-| `agent.maxSearchNodes` | `4000` | Search node budget for each S1 decision. |
+| `agent.backend` | `legacy` | Select `legacy` or the Python `city-half-1` policy. |
+| `agent.pythonExecutable` | `python` | Python 3.10+ executable for city-half-1, with no shell arguments. |
+| `agent.pythonTimeoutMs` | `5000` | city-half-1 request deadline, including initialization. |
+| `agent.decisionBudgetMs` | `50` | Cooperative search time budget for each legacy decision, in milliseconds. |
+| `agent.maxSearchNodes` | `4000` | Search node budget for each legacy decision. |
 | `agent.reportIntervalMs` | `10000` | Periodic S2 report interval, in milliseconds; significant changes can report earlier. |
 
 For example, a fixed viewer port and the shipped search budgets:
@@ -41,6 +44,12 @@ For example, a fixed viewer port and the shipped search budgets:
 Search can return completed candidates or the disclosed one-step fallback when a budget is exhausted. Larger budgets allow more search; they do not guarantee a better move. Map scans and fallback work can extend elapsed time beyond the cooperative decision budget.
 
 ## Accounts and admission
+
+Select the S1 backend with `agent.backend`: `legacy` preserves existing behavior;
+`city-half-1` requires Python 3.10+ and uses `agent.pythonExecutable` and
+`agent.pythonTimeoutMs`. Legacy search budgets do not tune city-half-1. Restart the World
+after changing these values. See [backend setup](city-half.md) for a full configuration
+example and the dry-run configuration migration.
 
 Set `CORTICO_GENERALS_USER_ID` in the deployment's `.env`. It is a private account identifier, supplied separately from the public username. Keep an existing identifier when reusing an account. The World does not include the configured identifier in its own receipts or events.
 

@@ -14,6 +14,14 @@ Both manual movement and S1 use `agent/executor.ts` for the ordered transport, i
 
 ## Decision and search budgets
 
+`agent.backend` selects `legacy` (default) or `city-half-1`. The search, defense and transport
+sections below describe legacy. [city-half-1](city-half.md) runs the packaged Harris policy
+and S2 executor in an asynchronous Python subprocess, with its own fixed search limits.
+Only one Python request is in flight; updates coalesce to the latest turn. Replies must
+match the game, control epoch, map revision and S2 revision before submission. Stop, pause,
+result and disconnect terminate the policy instance. The shared move executor, intent
+ledger, observation tools, strategy reports and viewer serve both backends.
+
 S1 evaluates new server turns, sends at most one next step and observes feedback before continuing. Decisions identify the game, control epoch and map revision; stale decisions are rejected. `generals_agent_status`, also included in observations, reports `bounded_rule_search`, the last decision, search cost, pending action and last feedback. `agent.decisionBudgetMs` and `agent.maxSearchNodes` bound search; exhausted searches use completed candidates or the disclosed one-step fallback, marked by `lastDecision.search.fallback`. Candidate scores and arrival estimates are policy choices and projections, not observed outcomes.
 
 ## Gathering and transport

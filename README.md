@@ -13,6 +13,7 @@ This release candidate targets **World API 6**, with Cortico SDK 0.2.3. Its mani
 - A Cortico host supporting World API 6, with Node.js 22.15 or later.
 - A private Bot Server account identifier and network access to `botws.generals.io`.
 - For S1: a standard or City-State 1v1 or free-for-all room.
+- For the optional city-half-1 backend: Python 3.10+; no pip dependencies.
 
 The World id is `generals`. The host must not contain an in-tree registration with the same id; setting that World's `enabled=false` does not remove the registration. Hosts using World API 5 must upgrade to an API 6 host before installing this package. See [host compatibility](docs/host-compatibility.md) for migration; retain `worlds.generals`, the deployment `.env` and Memory.
 
@@ -53,6 +54,11 @@ Before publication, clone this repository, run `pnpm install`, and select its di
 Tool examples show names and argument objects, not a separate command-line interface. The host exposes the tools to its Persona.
 
 ## Viewer and configuration
+
+The default S1 backend is `legacy`. To select the packaged Harris-based city-half-1 policy,
+set `worlds.generals.agent.backend` to `city-half-1` and restart the World.
+See [backend setup and migration](docs/city-half.md) for Python configuration, S2 execution
+reports and limits. The same delegation and intent tools work with either backend.
 
 The read-only viewer listens on `127.0.0.1`. It shows the current fog view, player colors, armies, the local move cursor, submitted arrows and S1 plans. The white border follows the latest submitted destination; the Bot API supplies no selected-tile state. A processed action index does not prove a successful move or capture.
 
