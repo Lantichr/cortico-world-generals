@@ -222,6 +222,7 @@ describe('GeneralsWorldProxy with a real engine and local protocol server', () =
     expect(status).toMatchObject({ operatorPauseLinked: true, operatorPaused: true, control: 'autonomous' });
     expect(f.packets.some((packet) => packet.includes('attack'))).toBe(false);
     f.proxy.onOperatorPausedChanged(false);
+    await waitFor(async () => JSON.parse(await f.call('agent_status') as string).operatorPaused === false);
     f.update(2, [21, 0, 0]);
     await waitFor(() => f.packets.some((packet) => packet.includes('attack'))).catch(async () => { throw new Error(`S1 did not send: ${String(await f.call('agent_status'))}`); });
     f.proxy.onOperatorPausedChanged(true);
@@ -231,6 +232,7 @@ describe('GeneralsWorldProxy with a real engine and local protocol server', () =
     await waitFor(async () => JSON.parse(await f.call('observe') as string).view.turn === 3);
     expect(f.packets.filter((packet) => packet.includes('attack'))).toHaveLength(attacks);
     f.proxy.onOperatorPausedChanged(false);
+    await waitFor(async () => JSON.parse(await f.call('agent_status') as string).operatorPaused === false);
     f.update(4, [2, 21, 0], [0, 0, 1], { attackIndex: 1 });
     await waitFor(() => f.packets.filter((packet) => packet.includes('attack')).length > attacks);
     expect(JSON.parse(await f.call('agent_status') as string)).toMatchObject({ control: 'autonomous', operatorPaused: false });
