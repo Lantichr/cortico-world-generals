@@ -6,7 +6,7 @@ Owner: [`src/definition.ts`](src/definition.ts), [`src/config.ts`](src/config.ts
 
 A [Cortico](https://github.com/Pal-AI-Lab/Cortico) World for the generals.io Bot Server. It provides game observations, manual movement tools, a local board viewer, and an optional S1 agent with rule-based tactics and bounded search. A model can act as S2 by giving S1 structured strategic goals.
 
-This release candidate targets **World API 6**, with Cortico SDK 0.2.3. Its manifest, construction and self-description checks also pass on Cortico 0.2.6. Manual tools, the viewer and autonomous S1 work with the unmodified host. [Operator-pause integration](docs/host-compatibility.md) is optional. The package uses the Bot Server, with human players joining at `bot.generals.io`.
+This release candidate targets **World API 6**, tested with Cortico SDK 0.2.3. Manual tools, the viewer and autonomous S1 work with the unmodified host. [Operator-pause integration](docs/host-compatibility.md) is optional. The package uses the Bot Server, with human players joining at `bot.generals.io`.
 
 ## Requirements
 
@@ -100,7 +100,7 @@ pnpm check:host-patch
 
 Tests use local WebSocket/HTTP servers, an engine child process and a deterministic arena. They require no account, real bot or external network. The arena uses scripted opponents; its results do not measure strength against human players.
 
-The npm package ships TypeScript source and local viewer assets. Version `0.1.0-rc.2` is intended for the `next` dist-tag. Publishing is performed separately from local checks.
+The npm package ships TypeScript source and local viewer assets. Version `0.1.0-rc.3` is intended for the `next` dist-tag. Publishing is performed separately from local checks.
 
 ## License
 

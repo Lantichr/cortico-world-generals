@@ -4,9 +4,8 @@ Owner: [`package.json`](../package.json), [CI](../.github/workflows/ci.yml), [pu
 
 The package is `cortico-world-generals`; the source repository is
 [`Lantichr/cortico-world-generals`](https://github.com/Lantichr/cortico-world-generals).
-The current candidate is `0.1.0-rc.2`, published with the `next` dist-tag. It targets World API 6
-and the tested Cortico SDK `0.2.3`; declaration and construction checks also pass on host
-`0.2.6`. S1 runs on the unmodified host. The included
+The current candidate is `0.1.0-rc.3`, prepared for the `next` dist-tag. It targets World API 6
+and the tested Cortico SDK `0.2.3`. S1 runs on the unmodified host. The included
 [pause-hook patch](host-compatibility.md) optionally links global pause to S1; without it,
 global pause leaves S1 running. Release notes must retain this operating limit.
 
@@ -74,7 +73,7 @@ stored by this repository.
 ## Subsequent releases
 
 Update `package.json` and the lockfile, run the checks and commit the change. Create a GitHub
-Release whose tag is exactly `v<package.json version>`, such as `v0.1.0-rc.2`. Publishing the
+Release whose tag is exactly `v<package.json version>`, such as `v0.1.0-rc.3`. Publishing the
 Release starts `publish.yml`; it checks the version, tests, types, package and host patch before
 publishing with npm provenance after environment approval.
 
@@ -87,7 +86,7 @@ tarball with the source tree; change the version when the package contents chang
 
 ## 中文
 
-`0.1.0-rc.2` 的 S1 可在原版 Cortico 0.2.3 上运行；暂停联动补丁为可选增强，未接入时
+`0.1.0-rc.3` 的 S1 可在原版 Cortico 0.2.3 上运行；暂停联动补丁为可选增强，未接入时
 全局暂停不会停止 S1。发布说明需保留此限制，`check:host-patch` 仍需通过。
 
 本仓的本地检查不会上传 GitHub 或发布 npm。首次发布前，核对可选宿主补丁、源码树和

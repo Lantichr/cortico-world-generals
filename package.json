@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-generals",
-  "version": "0.1.0-rc.2",
+  "version": "0.1.0-rc.3",
   "type": "module",
   "description": "Generals.io Bot Server World for Cortico with map tools, tactical play and a local viewer",
   "license": "MIT",

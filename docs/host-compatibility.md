@@ -2,7 +2,7 @@ Owner: [`src/definition.ts`](../src/definition.ts), [`src/proxy.ts`](../src/prox
 
 # Host compatibility
 
-Version `0.1.0-rc.2` targets **World API 6**, with Cortico SDK 0.2.3. Its manifest, default construction, tool/configuration declarations and exported self-description also pass Cortico 0.2.6's checks without starting a bot or connecting to the game server. Manual tools, observations, the local viewer and autonomous S1 work with the unmodified host. Operator-pause integration is an optional enhancement.
+Version `0.1.0-rc.3` targets **World API 6**, with Cortico SDK 0.2.3. Manual tools, observations, the local viewer and autonomous S1 work with the unmodified host. Operator-pause integration is an optional enhancement.
 
 | Host | Manual tools and viewer | Autonomous S1 | Operator pause stops S1 |
 | --- | --- | --- | --- |
